@@ -280,6 +280,94 @@ app.get('/api/n8n/executions', async (req, res) => {
   res.json(data);
 });
 
+// GET /api/n8n/workflow-stats — estatísticas completas por workflow
+app.get('/api/n8n/workflow-stats', async (req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+
+  const since7d  = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000).toISOString();
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: workflows } = await db.from('n8n_workflows').select('*');
+  if (!workflows?.length) return res.json([]);
+
+  const stats = await Promise.all(workflows.map(async (wf) => {
+    const [all, last10, daily24h, recent] = await Promise.all([
+      // Todas as execuções dos últimos 30 dias
+      db.from('n8n_executions')
+        .select('status, duration_ms, started_at')
+        .eq('workflow_id', wf.id)
+        .gte('started_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+        .order('started_at', { ascending: false }),
+
+      // Últimas 10 para os dots
+      db.from('n8n_executions')
+        .select('status, started_at, duration_ms, node_error, error_message, execution_id')
+        .eq('workflow_id', wf.id)
+        .order('started_at', { ascending: false })
+        .limit(10),
+
+      // Contagens por dia nos últimos 7 dias
+      db.from('n8n_executions')
+        .select('status, started_at')
+        .eq('workflow_id', wf.id)
+        .gte('started_at', since7d),
+
+      // Últimas 5 execuções para expandir
+      db.from('n8n_executions')
+        .select('execution_id, status, started_at, finished_at, duration_ms, node_error, error_message')
+        .eq('workflow_id', wf.id)
+        .order('started_at', { ascending: false })
+        .limit(5),
+    ]);
+
+    const executions = all.data || [];
+    const total = executions.length;
+    const successes = executions.filter(e => e.status === 'success').length;
+    const errors = executions.filter(e => e.status === 'error' || e.status === 'crashed').length;
+    const successRate = total > 0 ? Math.round((successes / total) * 100) : 0;
+
+    const durations = executions.filter(e => e.duration_ms && e.status === 'success').map(e => e.duration_ms as number);
+    const avgDuration = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : null;
+
+    const exec24h = (daily24h.data || []).filter(e => e.started_at >= since24h);
+    const executions24h = exec24h.length;
+    const errors24h = exec24h.filter(e => e.status === 'error' || e.status === 'crashed').length;
+
+    // Sparkline: últimos 7 dias agrupados por data
+    const sparkMap = new Map<string, { total: number; errors: number }>();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      sparkMap.set(d.toISOString().split('T')[0], { total: 0, errors: 0 });
+    }
+    (daily24h.data || []).concat(
+      executions.filter(e => e.started_at >= since7d)
+    ).forEach(e => {
+      const day = e.started_at?.split('T')[0];
+      if (day && sparkMap.has(day)) {
+        sparkMap.get(day)!.total++;
+        if (e.status === 'error' || e.status === 'crashed') sparkMap.get(day)!.errors++;
+      }
+    });
+    const sparkline = Array.from(sparkMap.entries()).map(([date, v]) => ({ date, ...v }));
+
+    return {
+      ...wf,
+      total_executions: wf.total_executions || total,
+      total_errors: wf.total_errors || errors,
+      success_rate: successRate,
+      avg_duration_ms: avgDuration,
+      executions_24h: executions24h,
+      errors_24h: errors24h,
+      last_10_statuses: (last10.data || []).map(e => e.status),
+      sparkline,
+      recent_executions: recent.data || [],
+    };
+  }));
+
+  res.json(stats);
+});
+
 app.post('/api/n8n/sync', async (req, res) => {
   const db = getSupabase();
   if (!db) return res.status(503).json({ error: 'Database unavailable' });

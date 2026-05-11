@@ -325,6 +325,67 @@ async function startServer() {
     res.json(data);
   });
 
+  // GET /api/n8n/workflow-stats — estatísticas completas por workflow
+  app.get('/api/n8n/workflow-stats', async (req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+
+    const since7d  = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000).toISOString();
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: workflows } = await db.from('n8n_workflows').select('*');
+    if (!workflows?.length) return res.json([]);
+
+    const stats = await Promise.all(workflows.map(async (wf: any) => {
+      const [all, last10, daily, recent] = await Promise.all([
+        db.from('n8n_executions').select('status, duration_ms, started_at')
+          .eq('workflow_id', wf.id)
+          .gte('started_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+          .order('started_at', { ascending: false }),
+        db.from('n8n_executions').select('status, started_at, duration_ms, node_error, error_message, execution_id')
+          .eq('workflow_id', wf.id).order('started_at', { ascending: false }).limit(10),
+        db.from('n8n_executions').select('status, started_at')
+          .eq('workflow_id', wf.id).gte('started_at', since7d),
+        db.from('n8n_executions').select('execution_id, status, started_at, finished_at, duration_ms, node_error, error_message')
+          .eq('workflow_id', wf.id).order('started_at', { ascending: false }).limit(5),
+      ]);
+
+      const executions = all.data || [];
+      const total = executions.length;
+      const successes = executions.filter((e: any) => e.status === 'success').length;
+      const errors = executions.filter((e: any) => e.status === 'error' || e.status === 'crashed').length;
+      const successRate = total > 0 ? Math.round((successes / total) * 100) : 0;
+      const durations = executions.filter((e: any) => e.duration_ms && e.status === 'success').map((e: any) => e.duration_ms as number);
+      const avgDuration = durations.length > 0 ? Math.round(durations.reduce((a: number, b: number) => a + b, 0) / durations.length) : null;
+
+      const exec24h = (daily.data || []).filter((e: any) => e.started_at >= since24h);
+
+      const sparkMap = new Map<string, { total: number; errors: number }>();
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        sparkMap.set(d.toISOString().split('T')[0], { total: 0, errors: 0 });
+      }
+      (daily.data || []).forEach((e: any) => {
+        const day = e.started_at?.split('T')[0];
+        if (day && sparkMap.has(day)) {
+          sparkMap.get(day)!.total++;
+          if (e.status === 'error' || e.status === 'crashed') sparkMap.get(day)!.errors++;
+        }
+      });
+
+      return {
+        ...wf, success_rate: successRate, avg_duration_ms: avgDuration,
+        executions_24h: exec24h.length,
+        errors_24h: exec24h.filter((e: any) => e.status === 'error' || e.status === 'crashed').length,
+        last_10_statuses: (last10.data || []).map((e: any) => e.status),
+        sparkline: Array.from(sparkMap.entries()).map(([date, v]) => ({ date, ...v })),
+        recent_executions: recent.data || [],
+      };
+    }));
+
+    res.json(stats);
+  });
+
   // GET /api/n8n/executions — histórico de execuções
   app.get('/api/n8n/executions', async (req, res) => {
     const supabaseAdmin = getSupabaseAdmin();

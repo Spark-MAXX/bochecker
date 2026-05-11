@@ -15,6 +15,7 @@ export default function App() {
     openCount: 0, resolvedToday: 0, totalWeek: 0,
     recent: [] as Alert[], workflows: [] as any[],
   });
+  const [workflowStats, setWorkflowStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [filters, setFilters] = useState({ status: 'open', tipo: '' });
@@ -38,17 +39,20 @@ export default function App() {
       const queryParams = new URLSearchParams();
       if (filters.status) queryParams.append('status', filters.status);
       if (filters.tipo) queryParams.append('tipo', filters.tipo);
-      const [alertsRes, statsRes] = await Promise.all([
+      const [alertsRes, statsRes, wfStatsRes] = await Promise.all([
         fetch(`/api/alerts?${queryParams.toString()}`),
         fetch('/api/dashboard/stats'),
+        fetch('/api/n8n/workflow-stats'),
       ]);
-      const alertsData = await alertsRes.json();
-      const statsData = await statsRes.json();
+      const alertsData  = await alertsRes.json();
+      const statsData   = await statsRes.json();
+      const wfStatsData = wfStatsRes.ok ? await wfStatsRes.json() : [];
       setAlerts(alertsData.data || []);
       setStats({
         openCount: statsData.openCount || 0, resolvedToday: statsData.resolvedToday || 0,
         totalWeek: statsData.totalWeek || 0, recent: statsData.recent || [], workflows: statsData.workflows || [],
       });
+      setWorkflowStats(Array.isArray(wfStatsData) ? wfStatsData : []);
     } catch (error) { console.error('Error fetching data:', error); }
     finally { setLoading(false); }
   }, [filters]);
@@ -163,7 +167,7 @@ export default function App() {
                 </div>
               </div>
 
-              <WorkflowsPanel workflows={stats.workflows} onSyncNow={handleSyncNow} syncing={syncing} />
+              <WorkflowsPanel workflows={workflowStats.length ? workflowStats : stats.workflows} onSyncNow={handleSyncNow} syncing={syncing} />
             </div>
 
             {/* Sidebar */}
