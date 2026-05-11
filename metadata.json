@@ -1,0 +1,6 @@
+{
+  "name": "Spark Maxx Alerts Dashboard",
+  "description": "Lead pipeline monitoring system for Spark Maxx with real-time alerts and Discord notifications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
