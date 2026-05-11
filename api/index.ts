@@ -16,6 +16,22 @@ function getSupabase() {
 }
 
 // ── Discord ─────────────────────────────────────────────────────────────────
+async function notifyDiscordSuccess(payload: { lead_source: string; workflow_name: string; lead_nome?: string; lead_email?: string; execution_id?: string }) {
+  const url = process.env.DISCORD_WEBHOOK_ALERTAS;
+  if (!url) return;
+  const embed = {
+    title: `✅ Lead Completo — ${payload.workflow_name}`,
+    description: `👤 **${payload.lead_nome || 'N/A'}** · 📧 ${payload.lead_email || 'N/A'}\n✔️ Todos os campos obrigatórios presentes.`,
+    color: 5763719, // verde
+    timestamp: new Date().toISOString(),
+    fields: payload.execution_id ? [{ name: 'Execution ID', value: payload.execution_id, inline: true }] : [],
+    footer: { text: 'Spark Maxx Alerts Pipeline' },
+  };
+  try {
+    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [embed] }) });
+  } catch (e) { console.error('Discord success notify failed', e); }
+}
+
 async function notifyDiscord(alert: any) {
   const url = process.env.DISCORD_WEBHOOK_ALERTAS;
   if (!url) return;
@@ -101,7 +117,16 @@ app.post('/api/validate/lead', webhookAuth, async (req, res) => {
   if (!lead_source || !payload) return res.status(400).json({ error: 'lead_source e payload obrigatórios' });
 
   const missing = getMissingFields(payload, lead_source);
-  if (!missing.length) return res.json({ valid: true, missing: [] });
+  if (!missing.length) {
+    await notifyDiscordSuccess({
+      lead_source,
+      workflow_name: workflow_name || LEAD_SOURCE_LABELS[lead_source] || lead_source,
+      lead_nome: payload.nome || payload.indicado_nome || null,
+      lead_email: payload.email || payload.indicado_email || null,
+      execution_id: execution_id || null,
+    });
+    return res.json({ valid: true, missing: [], message: 'Lead completo ✅' });
+  }
 
   try {
     const { data: inserted, error } = await db.from('alerts').upsert({
