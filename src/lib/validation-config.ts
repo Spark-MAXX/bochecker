@@ -52,16 +52,16 @@ export const REQUIRED_FIELDS: Record<LeadSource, string[]> = {
     'conversion_url', 'conversion_identifier',
   ],
 
-  // ── Indicação Interna (Framer) ── payload do webhook direto
+  // ── Indicação Interna (Framer) ── nomes reais do output de "Processar indicação"
   indicacao: [
-    // Quem indica
-    'sparker_nome', 'sparker_email',
+    // Quem indica (Sparker)
+    'indicador_nome', 'indicador_email',
     // Quem é indicado
-    'indicado_nome', 'indicado_email', 'indicado_telefone', 'indicado_empresa',
+    'nome', 'email', 'telefone', 'empresa',
     // Produto
-    'produto_indicado',
-    // Rastreamento
-    'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
+    'produto_tag',
+    // Origem
+    'page_url',
   ],
 
   // ── RD → Pipedrive ── campos de $json._lead (após "Processar tags, UTMs e rotas1")
