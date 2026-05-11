@@ -41,10 +41,11 @@ export const REQUIRED_FIELDS: Record<LeadSource, string[]> = {
     'indicado_empresa', 'produto_indicado',
     'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
   ],
+  // Campos verificados em $json._lead (objeto aninhado do node "Processar tags, UTMs e rotas1")
+  // Removidos: pipedrive_person_id, pipedrive_deal_id, label (criados PELO workflow, não chegam no input)
   rd_pipe: [
-    'nome', 'email', 'tags', 'rota_definida',
-    'destino_pipeline_id', 'destino_stage_id', 'destino_owner_id',
-    'pipedrive_person_id', 'pipedrive_deal_id', 'label',
+    'lead_nome', 'lead_email', 'lead_telefone',
+    'rota_definida', 'destino_pipeline_id', 'destino_stage_id', 'destino_owner_id',
   ],
 };
 

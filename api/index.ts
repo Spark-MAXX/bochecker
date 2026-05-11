@@ -67,7 +67,8 @@ const REQUIRED_FIELDS: Record<string, string[]> = {
   lp_community: ['nome','email','telefone','empresa','cargo','tamanho_da_empresa','faz_influencia','page_url','utm_source','utm_medium','utm_campaign'],
   site_spark:   ['nome','email','telefone','empresa','voce_e','frequencia','budget','o_que_busca','conversion_url','conversion_identifier'],
   indicacao:    ['sparker_nome','sparker_email','indicado_nome','indicado_email','indicado_telefone','indicado_empresa','produto_indicado','page_url','utm_source','utm_medium','utm_campaign'],
-  rd_pipe:      ['nome','email','tags','rota_definida','destino_pipeline_id','destino_stage_id','destino_owner_id','pipedrive_person_id','pipedrive_deal_id','label'],
+  // Campos em $json._lead — pipedrive IDs não existem nesse ponto (criados pelo workflow)
+  rd_pipe:      ['lead_nome','lead_email','lead_telefone','rota_definida','destino_pipeline_id','destino_stage_id','destino_owner_id'],
 };
 
 type FieldDiag = { campo: string; motivo: string };
