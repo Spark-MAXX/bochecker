@@ -1,6 +1,7 @@
 # Spark Maxx Alerts Pipeline Dashboard
 
 Painel de monitoramento em tempo real para o pipeline de leads da Spark Maxx.
+Maintainer: Caio (caiogss1909@gmail.com)
 
 ## Funcionalidades
 - **Endpoints de Alerta:** Recebe dados do n8n para leads incompletos e erros técnicos.
