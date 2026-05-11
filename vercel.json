@@ -6,11 +6,5 @@
   "rewrites": [
     { "source": "/api/cron/sync", "destination": "/api/cron/sync" },
     { "source": "/api/:path*", "destination": "/api/index" }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron/sync",
-      "schedule": "* * * * *"
-    }
   ]
 }
