@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getSupabase } from './lib/supabase';
 import StatsHeader from './components/StatsHeader';
 import AlertsTable from './components/AlertsTable';
 import Charts from './components/Charts';
 import Filters from './components/Filters';
+import WorkflowsPanel from './components/WorkflowsPanel';
 import { type Alert } from './lib/schemas';
 import { Bell, RefreshCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -14,51 +15,63 @@ export default function App() {
     openCount: 0,
     resolvedToday: 0,
     totalWeek: 0,
-    recent: [] as Alert[]
+    recent: [] as Alert[],
+    workflows: [] as any[],
   });
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({
-    status: 'open',
-    tipo: '',
-  });
+  const [syncing, setSyncing] = useState(false);
+  const [filters, setFilters] = useState({ status: 'open', tipo: '' });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Fetch Alerts based on filters
       const queryParams = new URLSearchParams();
       if (filters.status) queryParams.append('status', filters.status);
       if (filters.tipo) queryParams.append('tipo', filters.tipo);
 
       const [alertsRes, statsRes] = await Promise.all([
         fetch(`/api/alerts?${queryParams.toString()}`),
-        fetch('/api/dashboard/stats')
+        fetch('/api/dashboard/stats'),
       ]);
 
       const alertsData = await alertsRes.json();
       const statsData = await statsRes.json();
 
       setAlerts(alertsData.data || []);
-      setStats(statsData);
+      setStats({
+        openCount: statsData.openCount || 0,
+        resolvedToday: statsData.resolvedToday || 0,
+        totalWeek: statsData.totalWeek || 0,
+        recent: statsData.recent || [],
+        workflows: statsData.workflows || [],
+      });
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
 
   const handleResolve = async (id: string) => {
     try {
       const res = await fetch(`/api/alerts/${id}/resolve`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resolved_by: 'Dashboard User' })
+        body: JSON.stringify({ resolved_by: 'Dashboard User' }),
       });
-      if (res.ok) {
-        fetchData(); // Refresh everything
-      }
+      if (res.ok) fetchData();
     } catch (error) {
       console.error('Error resolving alert:', error);
+    }
+  };
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      await fetch('/api/n8n/sync', { method: 'POST' });
+      await fetchData();
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -68,22 +81,17 @@ export default function App() {
     const supabase = getSupabase();
     if (!supabase) return;
 
-    // Setup Supabase Realtime Subscription
     const subscription = supabase
       .channel('alerts_channel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts' }, () => {
-        fetchData();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'n8n_executions' }, () => fetchData())
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(subscription);
-    };
-  }, [filters]);
+    return () => { supabase.removeChannel(subscription); };
+  }, [fetchData]);
 
   return (
     <div className="min-h-screen bg-[#020617] text-slate-100 font-sans selection:bg-cyan-500/20">
-      {/* Navigation Layer */}
       <nav className="h-16 border-b border-slate-800 bg-[#020617]/80 backdrop-blur-md flex items-center justify-between px-8 sticky top-0 z-50">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-cyan-500 rounded flex items-center justify-center glow-cyan transition-transform hover:scale-110 duration-300">
@@ -93,7 +101,7 @@ export default function App() {
             Spark Maxx <span className="text-cyan-400 opacity-80 font-mono text-base ml-1 tracking-normal">// Pipeline</span>
           </h1>
         </div>
-        
+
         <div className="flex items-center gap-6">
           <div className="hidden md:flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full glow-emerald ${loading ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'}`}></div>
@@ -102,8 +110,8 @@ export default function App() {
             </span>
           </div>
           <div className="h-4 w-px bg-slate-800"></div>
-          <button 
-            onClick={() => fetchData()}
+          <button
+            onClick={fetchData}
             className="p-2 text-slate-400 hover:text-cyan-400 hover:bg-slate-800 rounded-lg transition-all"
             title="Sincronizar"
           >
@@ -116,19 +124,17 @@ export default function App() {
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
         >
-          {/* Stats Bar */}
-          <StatsHeader 
+          <StatsHeader
             openCount={stats.openCount}
             resolvedToday={stats.resolvedToday}
             totalWeek={stats.totalWeek}
           />
 
           <div className="grid grid-cols-12 gap-6">
-            {/* Main Content (Left) */}
+            {/* Main Content */}
             <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
-              {/* Table Container */}
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl flex flex-col overflow-hidden shadow-2xl">
                 <div className="p-4 border-b border-slate-800 flex flex-wrap gap-4 justify-between items-center bg-slate-950/20">
                   <div className="flex items-center gap-3">
@@ -158,18 +164,25 @@ export default function App() {
                   </AnimatePresence>
                 </div>
               </div>
+
+              {/* Workflows Panel */}
+              <WorkflowsPanel
+                workflows={stats.workflows}
+                onSyncNow={handleSyncNow}
+                syncing={syncing}
+              />
             </div>
 
-            {/* Sidebar Charts (Right) */}
+            {/* Sidebar */}
             <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
               <Charts data={stats} />
-              
+
               <div className="mt-auto flex items-center justify-between bg-cyan-950/20 border border-cyan-900/30 p-4 rounded-xl">
                 <div className="flex items-center gap-3">
                   <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse glow-cyan"></div>
                   <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest">Real-time Pipeline Active</span>
                 </div>
-                <span className="text-[10px] text-slate-500 font-mono">SUPABASE // OK</span>
+                <span className="text-[10px] text-slate-500 font-mono">n8n + SUPABASE // OK</span>
               </div>
             </div>
           </div>
@@ -178,7 +191,7 @@ export default function App() {
 
       <footer className="max-w-7xl mx-auto px-6 py-10 border-t border-slate-800/50 mt-12 flex justify-between items-center">
         <div className="text-[10px] font-mono text-slate-600 uppercase tracking-widest">
-          Spark Maxx Monitoring // v2.4.0
+          Spark Maxx Monitoring // v3.0.0
         </div>
         <div className="text-[10px] font-mono text-slate-500">
           &copy; {new Date().getFullYear()} Build with AI Studio

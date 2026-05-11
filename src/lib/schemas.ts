@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+export const LeadSourceEnum = z.enum(['lp_sprout', 'lp_community', 'site_spark', 'indicacao', 'rd_pipe']);
+export type LeadSource = z.infer<typeof LeadSourceEnum>;
+
 export const AlertTypeEnum = z.enum(['lead_incompleto', 'erro_tecnico']);
 export const SeverityEnum = z.enum(['warning', 'error', 'critical']);
 export const StatusEnum = z.enum(['open', 'resolved', 'ignored']);
