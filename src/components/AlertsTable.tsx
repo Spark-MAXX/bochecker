@@ -8,18 +8,20 @@ interface AlertsTableProps {
   onResolve: (id: string) => void;
 }
 
-const MOTIVO_COLORS: Record<string, string> = {
-  'não veio no payload':      'text-rose-500   bg-rose-500/10   border-rose-400/30',
-  'veio como nulo':           'text-orange-500 bg-orange-500/10 border-orange-400/30',
-  'veio vazio':               'text-amber-500  bg-amber-500/10  border-amber-400/30',
-  'veio como string "null"':  'text-yellow-600 bg-yellow-500/10 border-yellow-400/30',
-  'valor inválido':           'text-red-500    bg-red-500/10    border-red-400/30',
+// Inline styles para garantir contraste em ambos os temas via CSS vars
+const MOTIVO_STYLES: Record<string, { color: string; bg: string; border: string }> = {
+  'não veio no payload':     { color: '#dc2626', bg: 'rgba(220,38,38,0.10)',  border: 'rgba(220,38,38,0.30)' },
+  'veio como nulo':          { color: '#ea580c', bg: 'rgba(234,88,12,0.10)',  border: 'rgba(234,88,12,0.30)' },
+  'veio vazio':              { color: '#d97706', bg: 'rgba(217,119,6,0.10)',  border: 'rgba(217,119,6,0.30)' },
+  'veio como string "null"': { color: '#ca8a04', bg: 'rgba(202,138,4,0.10)',  border: 'rgba(202,138,4,0.30)' },
+  'valor inválido':          { color: '#b91c1c', bg: 'rgba(185,28,28,0.10)',  border: 'rgba(185,28,28,0.30)' },
 };
 
 function MotivoTag({ motivo }: { motivo: string }) {
-  const cls = MOTIVO_COLORS[motivo] || 'text-slate-500 bg-slate-500/10 border-slate-400/30';
+  const s = MOTIVO_STYLES[motivo] || { color: 'var(--text-3)', bg: 'var(--bg-muted)', border: 'var(--border)' };
   return (
-    <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold border ${cls}`}>
+    <span style={{ color: s.color, backgroundColor: s.bg, borderColor: s.border, borderWidth: 1, borderStyle: 'solid' }}
+      className="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold">
       {motivo}
     </span>
   );
@@ -31,27 +33,27 @@ function DiagnosticoPanel({ alert }: { alert: Alert }) {
   if (alert.tipo === 'lead_incompleto') {
     if (!d?.campos?.length) {
       return (
-        <div className="text-xs font-mono text-amber-500/90 italic">
+        <div className="text-xs font-mono italic" style={{ color: 'var(--c-warning)' }}>
           Campos faltando: {alert.campos_faltantes?.join(', ') || '—'}
         </div>
       );
     }
     return (
       <div className="space-y-1.5">
-        <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
+        <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-2)' }}>
           {d.resumo}
         </div>
         <div className="space-y-1">
           {d.campos.map((c, i) => (
             <div key={i} className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] font-mono font-semibold" style={{ color: 'var(--text-1)' }}>{c.campo}</span>
-              <span className="text-[10px]" style={{ color: 'var(--text-4)' }}>→</span>
+              <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>→</span>
               <MotivoTag motivo={c.motivo} />
             </div>
           ))}
         </div>
         {d.dica && (
-          <div className="mt-2 flex items-start gap-1.5 text-[10px] text-cyan-500/80 italic">
+          <div className="mt-2 flex items-start gap-1.5 text-[10px] italic" style={{ color: 'var(--c-info)' }}>
             <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
             {d.dica}
           </div>
@@ -62,26 +64,23 @@ function DiagnosticoPanel({ alert }: { alert: Alert }) {
 
   return (
     <div className="space-y-1.5">
-      {d?.motivo ? (
+      {(d?.motivo || alert.error_message) && (
         <div className="flex items-start gap-1.5">
-          <Zap className="h-3.5 w-3.5 text-rose-500 mt-0.5 shrink-0" />
-          <span className="text-[11px] font-semibold text-rose-500">{d.motivo}</span>
+          <Zap className="h-3.5 w-3.5 mt-0.5 shrink-0" style={{ color: 'var(--c-error)' }} />
+          <span className="text-[11px] font-semibold" style={{ color: 'var(--c-error)' }}>
+            {d?.motivo || alert.error_message}
+          </span>
         </div>
-      ) : null}
+      )}
       {d?.node_falhou && (
         <div className="text-[10px] font-mono" style={{ color: 'var(--text-3)' }}>
           Node: <span style={{ color: 'var(--text-2)' }}>{d.node_falhou}</span>
         </div>
       )}
-      {(d?.detalhe_original || alert.error_message) && (
-        <div className="text-[10px] font-mono italic truncate max-w-xs" style={{ color: 'var(--text-4)' }}
-          title={d?.detalhe_original || alert.error_message}>
-          {d?.detalhe_original || alert.error_message}
-        </div>
-      )}
-      {!d && alert.error_message && (
-        <div className="text-xs font-mono text-rose-500/80 truncate" title={alert.error_message}>
-          {alert.error_message}
+      {d?.detalhe_original && (
+        <div className="text-[10px] font-mono italic truncate max-w-xs" style={{ color: 'var(--text-3)' }}
+          title={d.detalhe_original}>
+          {d.detalhe_original}
         </div>
       )}
     </div>
@@ -141,28 +140,29 @@ export default function AlertsTable({ alerts, onResolve }: AlertsTableProps) {
                         : null}
                     </td>
                     <td className="p-4 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                        alert.severity === 'critical' ? 'bg-rose-500/20   text-rose-500   border-rose-500/30' :
-                        alert.severity === 'error'    ? 'bg-orange-500/20 text-orange-500 border-orange-500/30' :
-                        'bg-amber-500/20 text-amber-500 border-amber-500/30'
-                      }`}>
+                      <span style={{
+                        backgroundColor: alert.severity === 'warning' ? 'var(--c-warn-bg)' : 'var(--c-error-bg)',
+                        color: alert.severity === 'warning' ? 'var(--c-warning)' : 'var(--c-error)',
+                        borderColor: alert.severity === 'warning' ? 'var(--c-warning)' : 'var(--c-error)',
+                        borderWidth: 1, borderStyle: 'solid',
+                      }} className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase inline-block opacity-90">
                         {alert.severity}
                       </span>
                     </td>
                     <td className="p-4">
-                      <div className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>{alert.workflow_name}</div>
-                      <div className="text-[10px] font-mono break-all" style={{ color: 'var(--text-3)' }}>{alert.lead_email || 'N/A'}</div>
+                      <div className="text-sm font-semibold" style={{ color: 'var(--text-1)' }}>{alert.workflow_name}</div>
+                      <div className="text-[10px] font-mono break-all" style={{ color: 'var(--text-2)' }}>{alert.lead_email || 'N/A'}</div>
                       {alert.lead_nome && (
-                        <div className="text-[10px]" style={{ color: 'var(--text-4)' }}>{alert.lead_nome}</div>
+                        <div className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>{alert.lead_nome}</div>
                       )}
                     </td>
                     <td className="p-4 max-w-sm">
                       <DiagnosticoPanel alert={alert} />
                     </td>
-                    <td className="p-4 text-[10px] font-mono whitespace-nowrap" style={{ color: 'var(--text-3)' }}>
+                    <td className="p-4 text-[10px] font-mono whitespace-nowrap" style={{ color: 'var(--text-2)' }}>
                       {format(new Date(alert.created_at), 'HH:mm:ss')}
                       <br />
-                      <span style={{ color: 'var(--text-4)' }}>{format(new Date(alert.created_at), 'dd/MM/yy')}</span>
+                      <span style={{ color: 'var(--text-3)' }}>{format(new Date(alert.created_at), 'dd/MM/yy')}</span>
                     </td>
                     <td className="p-4 text-right" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all duration-300">
