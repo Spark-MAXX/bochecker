@@ -16,15 +16,18 @@ export const WORKFLOW_ID_MAP: Record<string, LeadSource[]> = {
 };
 
 export const REQUIRED_FIELDS: Record<LeadSource, string[]> = {
+  // Campos verificados NO PAYLOAD PROCESSADO pelo n8n (após "Processar dados da LP1")
+  // page_url = campo real enviado pelo Framer (não "url")
+  // faz_influencia = campo mapeado de Frequencia_de_campanhas_de_marketing
   lp_sprout: [
     'nome', 'email', 'telefone', 'empresa',
-    'voce_e', 'o_que_busca', 'frequencia_campanhas',
-    'url', 'utm_source', 'utm_medium', 'utm_campaign',
+    'voce_e', 'o_que_busca', 'faz_influencia',
+    'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
   ],
   lp_community: [
     'nome', 'email', 'telefone', 'empresa',
-    'cargo', 'tamanho_da_empresa', 'frequencia_campanhas',
-    'url', 'utm_source', 'utm_medium', 'utm_campaign',
+    'cargo', 'tamanho_da_empresa', 'faz_influencia',
+    'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
   ],
   site_spark: [
     'nome', 'email', 'telefone', 'empresa',
@@ -36,7 +39,7 @@ export const REQUIRED_FIELDS: Record<LeadSource, string[]> = {
     'sparker_nome', 'sparker_email',
     'indicado_nome', 'indicado_email', 'indicado_telefone',
     'indicado_empresa', 'produto_indicado',
-    'url', 'utm_source', 'utm_medium', 'utm_campaign',
+    'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
   ],
   rd_pipe: [
     'nome', 'email', 'tags', 'rota_definida',

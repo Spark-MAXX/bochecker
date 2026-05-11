@@ -60,10 +60,13 @@ const LEAD_SOURCE_LABELS: Record<string, string> = {
 };
 
 const REQUIRED_FIELDS: Record<string, string[]> = {
-  lp_sprout:    ['nome','email','telefone','empresa','voce_e','o_que_busca','frequencia_campanhas','url','utm_source','utm_medium','utm_campaign'],
-  lp_community: ['nome','email','telefone','empresa','cargo','tamanho_da_empresa','frequencia_campanhas','url','utm_source','utm_medium','utm_campaign'],
+  // Campos verificados no payload JÁ PROCESSADO pelo n8n
+  // page_url = campo real do Framer (não "url")
+  // faz_influencia = mapeado de Frequencia_de_campanhas_de_marketing
+  lp_sprout:    ['nome','email','telefone','empresa','voce_e','o_que_busca','faz_influencia','page_url','utm_source','utm_medium','utm_campaign'],
+  lp_community: ['nome','email','telefone','empresa','cargo','tamanho_da_empresa','faz_influencia','page_url','utm_source','utm_medium','utm_campaign'],
   site_spark:   ['nome','email','telefone','empresa','voce_e','frequencia','budget','o_que_busca','conversion_url','conversion_identifier'],
-  indicacao:    ['sparker_nome','sparker_email','indicado_nome','indicado_email','indicado_telefone','indicado_empresa','produto_indicado','url','utm_source','utm_medium','utm_campaign'],
+  indicacao:    ['sparker_nome','sparker_email','indicado_nome','indicado_email','indicado_telefone','indicado_empresa','produto_indicado','page_url','utm_source','utm_medium','utm_campaign'],
   rd_pipe:      ['nome','email','tags','rota_definida','destino_pipeline_id','destino_stage_id','destino_owner_id','pipedrive_person_id','pipedrive_deal_id','label'],
 };
 
@@ -150,13 +153,23 @@ app.post('/api/validate/lead', webhookAuth, async (req, res) => {
   if (!lead_source || !payload) return res.status(400).json({ error: 'lead_source e payload obrigatórios' });
 
   const missing = getMissingFields(payload, lead_source);
+  const leadEmail = payload.email || payload.indicado_email || null;
+  const wfName = workflow_name || LEAD_SOURCE_LABELS[lead_source] || lead_source;
+
   if (!missing.length) {
+    // Lead válido — auto-resolve alertas abertos desse email no mesmo workflow
+    if (leadEmail && db) {
+      await db.from('alerts')
+        .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: 'auto:resubmit_ok' })
+        .eq('lead_email', leadEmail)
+        .eq('workflow_id', workflow_id || lead_source)
+        .eq('tipo', 'lead_incompleto')
+        .eq('status', 'open');
+    }
     await notifyDiscordSuccess({
-      lead_source,
-      workflow_name: workflow_name || LEAD_SOURCE_LABELS[lead_source] || lead_source,
+      lead_source, workflow_name: wfName,
       lead_nome: payload.nome || payload.indicado_nome || null,
-      lead_email: payload.email || payload.indicado_email || null,
-      execution_id: execution_id || null,
+      lead_email: leadEmail, execution_id: execution_id || null,
     });
     return res.json({ valid: true, missing: [], message: 'Lead completo ✅' });
   }
@@ -167,24 +180,41 @@ app.post('/api/validate/lead', webhookAuth, async (req, res) => {
       tipo: 'lead_incompleto',
       resumo: `${missing.length} campo(s) faltando`,
       campos: fieldDiags,
-      dica: fieldDiags.some(d => d.motivo === 'não veio no payload')
-        ? 'Verifique se o formulário está enviando todos os campos obrigatórios.'
-        : fieldDiags.some(d => d.motivo.includes('nulo') || d.motivo.includes('vazio'))
-        ? 'Campos chegaram no payload mas sem valor. Verifique a fonte do dado.'
-        : 'Revise o mapeamento dos campos no workflow do n8n.',
+      dica: fieldDiags.every(d => d.motivo === 'não veio no payload')
+        ? 'Campos ausentes do payload processado. Verifique o mapeamento no node "Processar dados" do n8n.'
+        : fieldDiags.some(d => d.motivo.includes('vazio') || d.motivo.includes('nulo'))
+        ? 'Campos chegaram mas sem valor. O formulário pode estar enviando campos em branco.'
+        : 'Combinação de campos ausentes e vazios. Verifique o formulário e o mapeamento no n8n.',
     };
 
-    const { data: inserted, error } = await db.from('alerts').upsert({
+    const alertPayload: any = {
       tipo: 'lead_incompleto',
       severity: missing.length >= 3 ? 'error' : 'warning',
       workflow_id: workflow_id || lead_source,
-      workflow_name: workflow_name || LEAD_SOURCE_LABELS[lead_source] || lead_source,
+      workflow_name: wfName,
       execution_id: execution_id || null,
-      lead_email: payload.email || payload.indicado_email || null,
+      lead_email: leadEmail,
       lead_nome: payload.nome || payload.indicado_nome || null,
       campos_faltantes: missing, payload_original: payload, status: 'open',
       diagnostico,
-    }, { onConflict: 'workflow_id,execution_id,tipo' }).select().single();
+    };
+
+    // Deduplicação: atualiza alerta aberto existente p/ mesmo email+workflow em vez de criar novo
+    let existingId: string | null = null;
+    if (leadEmail) {
+      const { data: existing } = await db.from('alerts')
+        .select('id').eq('lead_email', leadEmail)
+        .eq('workflow_id', workflow_id || lead_source)
+        .eq('tipo', 'lead_incompleto').eq('status', 'open').maybeSingle();
+      if (existing) existingId = existing.id;
+    }
+
+    let inserted: any, error: any;
+    if (existingId) {
+      ({ data: inserted, error } = await db.from('alerts').update(alertPayload).eq('id', existingId).select().single());
+    } else {
+      ({ data: inserted, error } = await db.from('alerts').upsert(alertPayload, { onConflict: 'workflow_id,execution_id,tipo' }).select().single());
+    }
     if (error) throw error;
     await notifyDiscord(inserted);
     res.status(201).json({ valid: false, missing, alert_id: inserted.id, message: `${missing.length} campo(s) faltando: ${missing.join(', ')}` });
