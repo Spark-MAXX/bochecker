@@ -67,11 +67,44 @@ const REQUIRED_FIELDS: Record<string, string[]> = {
   rd_pipe:      ['nome','email','tags','rota_definida','destino_pipeline_id','destino_stage_id','destino_owner_id','pipedrive_person_id','pipedrive_deal_id','label'],
 };
 
+type FieldDiag = { campo: string; motivo: string };
+
+function diagnoseMissingFields(payload: Record<string, any>, source: string): FieldDiag[] {
+  return (REQUIRED_FIELDS[source] || [])
+    .filter(f => { const v = payload[f]; return v === undefined || v === null || v === '' || v === 'null'; })
+    .map(f => {
+      const v = payload[f];
+      let motivo: string;
+      if (!(f in payload) || v === undefined) motivo = 'não veio no payload';
+      else if (v === null)                    motivo = 'veio como nulo';
+      else if (v === '')                      motivo = 'veio vazio';
+      else if (v === 'null')                  motivo = 'veio como string "null"';
+      else                                    motivo = 'valor inválido';
+      return { campo: f, motivo };
+    });
+}
+
 function getMissingFields(payload: Record<string, any>, source: string): string[] {
-  return (REQUIRED_FIELDS[source] || []).filter(f => {
-    const v = payload[f];
-    return v === undefined || v === null || v === '' || v === 'null';
-  });
+  return diagnoseMissingFields(payload, source).map(d => d.campo);
+}
+
+function diagnoseError(errorMessage: string): string {
+  if (!errorMessage) return 'Erro desconhecido na execução';
+  const m = errorMessage.toLowerCase();
+  if (m.includes('econnrefused') || m.includes('connection refused')) return 'Conexão recusada pelo serviço externo';
+  if (m.includes('etimedout') || m.includes('timeout'))               return 'Timeout — serviço não respondeu a tempo';
+  if (m.includes('enotfound'))                                         return 'Serviço externo inacessível (falha de DNS)';
+  if (m.includes('401') || m.includes('unauthorized'))                 return 'Falha de autenticação na API externa';
+  if (m.includes('403') || m.includes('forbidden'))                    return 'Acesso negado pela API externa';
+  if (m.includes('404') || m.includes('not found'))                    return 'Recurso não encontrado na API';
+  if (m.includes('500') || m.includes('internal server'))              return 'Erro interno no serviço externo';
+  if (m.includes('cannot read') || m.includes('undefined'))            return 'Dado esperado não encontrado no payload';
+  if (m.includes('json') || m.includes('parse'))                       return 'Payload com formato JSON inválido';
+  if (m.includes('rate limit') || m.includes('429'))                   return 'Rate limit atingido no serviço externo';
+  if (m.includes('invalid') && m.includes('schema'))                   return 'Dados fora do schema esperado';
+  if (m.includes('network') || m.includes('socket'))                   return 'Falha de rede — sem conexão com o serviço';
+  if (m.includes('nenhum') || m.includes('não encontrado'))            return 'Registro não encontrado na base de dados';
+  return errorMessage.length > 120 ? errorMessage.substring(0, 120) + '…' : errorMessage;
 }
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
@@ -129,6 +162,18 @@ app.post('/api/validate/lead', webhookAuth, async (req, res) => {
   }
 
   try {
+    const fieldDiags = diagnoseMissingFields(payload, lead_source);
+    const diagnostico = {
+      tipo: 'lead_incompleto',
+      resumo: `${missing.length} campo(s) faltando`,
+      campos: fieldDiags,
+      dica: fieldDiags.some(d => d.motivo === 'não veio no payload')
+        ? 'Verifique se o formulário está enviando todos os campos obrigatórios.'
+        : fieldDiags.some(d => d.motivo.includes('nulo') || d.motivo.includes('vazio'))
+        ? 'Campos chegaram no payload mas sem valor. Verifique a fonte do dado.'
+        : 'Revise o mapeamento dos campos no workflow do n8n.',
+    };
+
     const { data: inserted, error } = await db.from('alerts').upsert({
       tipo: 'lead_incompleto',
       severity: missing.length >= 3 ? 'error' : 'warning',
@@ -138,6 +183,7 @@ app.post('/api/validate/lead', webhookAuth, async (req, res) => {
       lead_email: payload.email || payload.indicado_email || null,
       lead_nome: payload.nome || payload.indicado_nome || null,
       campos_faltantes: missing, payload_original: payload, status: 'open',
+      diagnostico,
     }, { onConflict: 'workflow_id,execution_id,tipo' }).select().single();
     if (error) throw error;
     await notifyDiscord(inserted);
@@ -251,11 +297,17 @@ app.post('/api/n8n/sync', async (req, res) => {
         let alertId = null;
         if (exec.status === 'error' || exec.status === 'crashed') {
           const errorMsg = exec.data?.resultData?.error?.message || 'Execução falhou';
+          const nodeName = exec.data?.resultData?.lastNodeExecuted || null;
+          const diagnostico = {
+            tipo: 'erro_tecnico',
+            motivo: diagnoseError(errorMsg),
+            node_falhou: nodeName,
+            detalhe_original: errorMsg.length > 200 ? errorMsg.substring(0, 200) + '…' : errorMsg,
+          };
           const { data: al } = await db.from('alerts').upsert({
             tipo: 'erro_tecnico', severity: 'error', workflow_id: wfId,
             workflow_name: WORKFLOW_NAMES[wfId] || wfId, execution_id: String(exec.id),
-            node_name: exec.data?.resultData?.lastNodeExecuted || null,
-            error_message: errorMsg, status: 'open',
+            node_name: nodeName, error_message: errorMsg, status: 'open', diagnostico,
           }, { onConflict: 'workflow_id,execution_id,tipo' }).select('id').single();
           if (al) { alertId = al.id; await notifyDiscord({ ...al, tipo: 'erro_tecnico', workflow_name: WORKFLOW_NAMES[wfId] }); }
         }

@@ -26,6 +26,20 @@ export const ErroTecnicoSchema = z.object({
   payload_original: z.record(z.string(), z.any()).optional(),
 });
 
+export interface FieldDiag { campo: string; motivo: string; }
+
+export interface Diagnostico {
+  tipo: 'lead_incompleto' | 'erro_tecnico';
+  // lead_incompleto
+  resumo?: string;
+  campos?: FieldDiag[];
+  dica?: string;
+  // erro_tecnico
+  motivo?: string;
+  node_falhou?: string;
+  detalhe_original?: string;
+}
+
 export interface Alert {
   id: string;
   tipo: 'lead_incompleto' | 'erro_tecnico';
@@ -39,6 +53,7 @@ export interface Alert {
   node_name?: string;
   error_message?: string;
   payload_original?: any;
+  diagnostico?: Diagnostico;
   status: 'open' | 'resolved' | 'ignored';
   resolved_at?: string;
   resolved_by?: string;
