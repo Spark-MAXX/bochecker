@@ -65,8 +65,8 @@ const REQUIRED_FIELDS: Record<string, string[]> = {
   site_spark:   ['nome','email','telefone','empresa','voce_e','frequencia','budget','o_que_busca','conversion_url','conversion_identifier'],
   // Indicação Interna — nomes reais do output de "Processar indicação"
   indicacao:    ['indicador_nome','indicador_email','nome','email','telefone','empresa','produto_tag','page_url'],
-  // Campos de $json._lead — pipedrive IDs criados pelo workflow, não chegam no input
-  rd_pipe:      ['lead_nome','lead_email','lead_telefone','lead_empresa','rota_definida','destino_pipeline_id','destino_stage_id','destino_owner_id','tags_rd','utm_source','utm_campaign','url_bruta'],
+  // Campos de $json._lead — URL/UTMs NÃO são obrigatórias (nem sempre chegam via RD Station)
+  rd_pipe:      ['lead_nome','lead_email','lead_telefone','lead_empresa','rota_definida','destino_pipeline_id','destino_stage_id','destino_owner_id','tags_rd'],
 };
 
 // Arrays que devem ser não-vazios

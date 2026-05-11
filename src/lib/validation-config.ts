@@ -65,7 +65,7 @@ export const REQUIRED_FIELDS: Record<LeadSource, string[]> = {
   ],
 
   // ── RD → Pipedrive ── campos de $json._lead (após "Processar tags, UTMs e rotas1")
-  // pipedrive_person_id e pipedrive_deal_id são CRIADOS pelo workflow — não chegam no input
+  // URL e UTMs NÃO são obrigatórias — leads via RD Station nem sempre carregam essas infos
   rd_pipe: [
     // Dados do lead
     'lead_nome', 'lead_email', 'lead_telefone', 'lead_empresa',
@@ -73,8 +73,6 @@ export const REQUIRED_FIELDS: Record<LeadSource, string[]> = {
     'rota_definida', 'destino_pipeline_id', 'destino_stage_id', 'destino_owner_id',
     // Tags RD (array — deve ter pelo menos 1)
     'tags_rd',
-    // Rastreamento de origem
-    'utm_source', 'utm_campaign', 'url_bruta',
   ],
 };
 
