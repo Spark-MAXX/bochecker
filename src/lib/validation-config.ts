@@ -15,47 +15,92 @@ export const WORKFLOW_ID_MAP: Record<string, LeadSource[]> = {
   'iCSEmoah1GxnsprH': ['indicacao'],
 };
 
+// Campos validados no payload PROCESSADO pelo n8n (campo real → nome real)
+// Arrays marcados com [] são verificados como não-vazios
 export const REQUIRED_FIELDS: Record<LeadSource, string[]> = {
-  // Campos verificados NO PAYLOAD PROCESSADO pelo n8n (após "Processar dados da LP1")
-  // page_url = campo real enviado pelo Framer (não "url")
-  // faz_influencia = campo mapeado de Frequencia_de_campanhas_de_marketing
+
+  // ── LP Sprout (Framer) ── payload de "Processar dados da LP1"
   lp_sprout: [
+    // Dados do lead
     'nome', 'email', 'telefone', 'empresa',
+    // Qualificação
     'voce_e', 'o_que_busca', 'faz_influencia',
+    // Produto e origem
+    'produto', 'conversion_identifier',
+    // Rastreamento (page_url = campo real do Framer, não "url")
     'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
+    // Tags (array — deve ter pelo menos 1)
+    'tags',
   ],
+
+  // ── LP Community (Framer) ── payload de "Processar dados da LP1"
   lp_community: [
+    // Dados do lead
     'nome', 'email', 'telefone', 'empresa',
+    // Qualificação específica de Community
     'cargo', 'tamanho_da_empresa', 'faz_influencia',
+    // Produto e origem
+    'produto', 'conversion_identifier',
+    // Rastreamento
     'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
   ],
+
+  // ── Site Spark (form RD nativo) ── UTMs não chegam nesse fluxo
   site_spark: [
     'nome', 'email', 'telefone', 'empresa',
     'voce_e', 'frequencia', 'budget', 'o_que_busca',
     'conversion_url', 'conversion_identifier',
-    // UTMs NÃO são validados no site_spark (form RD nativo não captura)
   ],
+
+  // ── Indicação Interna (Framer) ── payload do webhook direto
   indicacao: [
+    // Quem indica
     'sparker_nome', 'sparker_email',
-    'indicado_nome', 'indicado_email', 'indicado_telefone',
-    'indicado_empresa', 'produto_indicado',
+    // Quem é indicado
+    'indicado_nome', 'indicado_email', 'indicado_telefone', 'indicado_empresa',
+    // Produto
+    'produto_indicado',
+    // Rastreamento
     'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
   ],
-  // Campos verificados em $json._lead (objeto aninhado do node "Processar tags, UTMs e rotas1")
-  // Removidos: pipedrive_person_id, pipedrive_deal_id, label (criados PELO workflow, não chegam no input)
+
+  // ── RD → Pipedrive ── campos de $json._lead (após "Processar tags, UTMs e rotas1")
+  // pipedrive_person_id e pipedrive_deal_id são CRIADOS pelo workflow — não chegam no input
   rd_pipe: [
-    'lead_nome', 'lead_email', 'lead_telefone',
+    // Dados do lead
+    'lead_nome', 'lead_email', 'lead_telefone', 'lead_empresa',
+    // Roteamento (crítico — sem isso o lead não vai para o Pipedrive correto)
     'rota_definida', 'destino_pipeline_id', 'destino_stage_id', 'destino_owner_id',
+    // Tags RD (array — deve ter pelo menos 1)
+    'tags_rd',
+    // Rastreamento de origem
+    'utm_source', 'utm_campaign', 'url_bruta',
   ],
+};
+
+// Campos cujo valor deve ser um array não-vazio (além de não-null)
+export const ARRAY_FIELDS: Partial<Record<LeadSource, string[]>> = {
+  lp_sprout:    ['tags'],
+  lp_community: [],
+  rd_pipe:      ['tags_rd'],
 };
 
 export function validateLeadFields(
   payload: Record<string, any>,
   source: LeadSource,
 ): string[] {
-  const required = REQUIRED_FIELDS[source];
+  const required = REQUIRED_FIELDS[source] || [];
+  const arrayFields = ARRAY_FIELDS[source] || [];
+
   return required.filter(field => {
     const val = payload[field];
-    return val === undefined || val === null || val === '' || val === 'null';
+
+    // Campo completamente ausente ou nulo/vazio
+    if (val === undefined || val === null || val === '' || val === 'null') return true;
+
+    // Array vazio (ex: tags: [])
+    if (arrayFields.includes(field) && Array.isArray(val) && val.length === 0) return true;
+
+    return false;
   });
 }

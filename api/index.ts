@@ -60,22 +60,31 @@ const LEAD_SOURCE_LABELS: Record<string, string> = {
 };
 
 const REQUIRED_FIELDS: Record<string, string[]> = {
-  // Campos verificados no payload JÁ PROCESSADO pelo n8n
-  // page_url = campo real do Framer (não "url")
-  // faz_influencia = mapeado de Frequencia_de_campanhas_de_marketing
-  lp_sprout:    ['nome','email','telefone','empresa','voce_e','o_que_busca','faz_influencia','page_url','utm_source','utm_medium','utm_campaign'],
-  lp_community: ['nome','email','telefone','empresa','cargo','tamanho_da_empresa','faz_influencia','page_url','utm_source','utm_medium','utm_campaign'],
+  lp_sprout:    ['nome','email','telefone','empresa','voce_e','o_que_busca','faz_influencia','produto','conversion_identifier','page_url','utm_source','utm_medium','utm_campaign','tags'],
+  lp_community: ['nome','email','telefone','empresa','cargo','tamanho_da_empresa','faz_influencia','produto','conversion_identifier','page_url','utm_source','utm_medium','utm_campaign'],
   site_spark:   ['nome','email','telefone','empresa','voce_e','frequencia','budget','o_que_busca','conversion_url','conversion_identifier'],
   indicacao:    ['sparker_nome','sparker_email','indicado_nome','indicado_email','indicado_telefone','indicado_empresa','produto_indicado','page_url','utm_source','utm_medium','utm_campaign'],
-  // Campos em $json._lead — pipedrive IDs não existem nesse ponto (criados pelo workflow)
-  rd_pipe:      ['lead_nome','lead_email','lead_telefone','rota_definida','destino_pipeline_id','destino_stage_id','destino_owner_id'],
+  // Campos de $json._lead — pipedrive IDs criados pelo workflow, não chegam no input
+  rd_pipe:      ['lead_nome','lead_email','lead_telefone','lead_empresa','rota_definida','destino_pipeline_id','destino_stage_id','destino_owner_id','tags_rd','utm_source','utm_campaign','url_bruta'],
+};
+
+// Arrays que devem ser não-vazios
+const ARRAY_FIELDS: Record<string, string[]> = {
+  lp_sprout: ['tags'],
+  rd_pipe:   ['tags_rd'],
 };
 
 type FieldDiag = { campo: string; motivo: string };
 
 function diagnoseMissingFields(payload: Record<string, any>, source: string): FieldDiag[] {
+  const arrayFields = ARRAY_FIELDS[source] || [];
   return (REQUIRED_FIELDS[source] || [])
-    .filter(f => { const v = payload[f]; return v === undefined || v === null || v === '' || v === 'null'; })
+    .filter(f => {
+      const v = payload[f];
+      if (v === undefined || v === null || v === '' || v === 'null') return true;
+      if (arrayFields.includes(f) && Array.isArray(v) && v.length === 0) return true;
+      return false;
+    })
     .map(f => {
       const v = payload[f];
       let motivo: string;
@@ -83,13 +92,20 @@ function diagnoseMissingFields(payload: Record<string, any>, source: string): Fi
       else if (v === null)                    motivo = 'veio como nulo';
       else if (v === '')                      motivo = 'veio vazio';
       else if (v === 'null')                  motivo = 'veio como string "null"';
+      else if (Array.isArray(v) && v.length === 0) motivo = 'array chegou vazio';
       else                                    motivo = 'valor inválido';
       return { campo: f, motivo };
     });
 }
 
 function getMissingFields(payload: Record<string, any>, source: string): string[] {
-  return diagnoseMissingFields(payload, source).map(d => d.campo);
+  const arrayFields = ARRAY_FIELDS[source] || [];
+  return (REQUIRED_FIELDS[source] || []).filter(f => {
+    const v = payload[f];
+    if (v === undefined || v === null || v === '' || v === 'null') return true;
+    if (arrayFields.includes(f) && Array.isArray(v) && v.length === 0) return true;
+    return false;
+  });
 }
 
 function diagnoseError(errorMessage: string): string {
