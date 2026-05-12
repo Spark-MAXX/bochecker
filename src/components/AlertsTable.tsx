@@ -30,6 +30,15 @@ function MotivoTag({ motivo }: { motivo: string }) {
 function DiagnosticoPanel({ alert }: { alert: Alert }) {
   const d = alert.diagnostico;
 
+  if (alert.tipo === 'lead_completo') {
+    return (
+      <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-500">
+        <CheckCircle2 className="h-4 w-4" />
+        Lead validado com sucesso
+      </div>
+    );
+  }
+
   if (alert.tipo === 'lead_incompleto') {
     if (!d?.campos?.length) {
       return (
@@ -119,11 +128,13 @@ export default function AlertsTable({ alerts, onResolve }: AlertsTableProps) {
               const leftBorder =
                 alert.status === 'resolved' ? 'transparent' :
                 alert.severity === 'critical' ? '#f43f5e' :
-                alert.severity === 'error' ? '#f97316' : '#f59e0b';
+                alert.severity === 'error' ? '#f97316' : 
+                alert.severity === 'info' ? '#10b981' : '#f59e0b';
               const rowBg =
                 alert.status === 'resolved' ? 'transparent' :
                 alert.severity === 'critical' ? 'rgba(244,63,94,0.04)' :
-                alert.severity === 'error' ? 'rgba(249,115,22,0.04)' : 'rgba(245,158,11,0.04)';
+                alert.severity === 'error' ? 'rgba(249,115,22,0.04)' : 
+                alert.severity === 'info' ? 'rgba(16,185,129,0.04)' : 'rgba(245,158,11,0.04)';
 
               return (
                 <React.Fragment key={alert.id}>
@@ -141,9 +152,9 @@ export default function AlertsTable({ alerts, onResolve }: AlertsTableProps) {
                     </td>
                     <td className="p-4 whitespace-nowrap">
                       <span style={{
-                        backgroundColor: alert.severity === 'warning' ? 'var(--c-warn-bg)' : 'var(--c-error-bg)',
-                        color: alert.severity === 'warning' ? 'var(--c-warning)' : 'var(--c-error)',
-                        borderColor: alert.severity === 'warning' ? 'var(--c-warning)' : 'var(--c-error)',
+                        backgroundColor: alert.severity === 'warning' ? 'var(--c-warn-bg)' : alert.severity === 'info' ? 'rgba(16,185,129,0.1)' : 'var(--c-error-bg)',
+                        color: alert.severity === 'warning' ? 'var(--c-warning)' : alert.severity === 'info' ? '#10b981' : 'var(--c-error)',
+                        borderColor: alert.severity === 'warning' ? 'var(--c-warning)' : alert.severity === 'info' ? 'rgba(16,185,129,0.3)' : 'var(--c-error)',
                         borderWidth: 1, borderStyle: 'solid',
                       }} className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase inline-block opacity-90">
                         {alert.severity}

@@ -421,7 +421,34 @@ async function startServer() {
     const missingFields = validateLeadFields(payload, lead_source as LeadSource);
 
     if (missingFields.length === 0) {
-      return res.json({ valid: true, missing: [], message: 'Lead completo ✅' });
+      try {
+        const alertData = {
+          tipo: 'lead_completo',
+          severity: 'info',
+          workflow_id: workflow_id || lead_source,
+          workflow_name: workflow_name || LEAD_SOURCE_LABELS[lead_source as LeadSource] || lead_source,
+          execution_id: execution_id || null,
+          lead_email: payload.email || payload.indicado_email || null,
+          lead_nome: payload.nome || payload.indicado_nome || null,
+          payload_original: payload,
+          status: 'resolved',
+          resolved_at: new Date().toISOString(),
+          resolved_by: 'system'
+        };
+
+        const { data: inserted, error } = await supabaseAdmin
+          .from('alerts')
+          .upsert(alertData, { onConflict: 'workflow_id,execution_id,tipo' })
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        return res.json({ valid: true, missing: [], message: 'Lead completo ✅' });
+      } catch (err: any) {
+        logger.error(err);
+        return res.status(500).json({ error: err.message });
+      }
     }
 
     try {

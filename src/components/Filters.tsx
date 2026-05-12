@@ -34,6 +34,7 @@ export default function Filters({ filters, setFilters }: FiltersProps) {
       >
         <option value="">Categoria: Todas</option>
         <option value="lead_incompleto">Lead Incompleto</option>
+        <option value="lead_completo">Lead Completo</option>
         <option value="erro_tecnico">Erro Técnico</option>
       </select>
 

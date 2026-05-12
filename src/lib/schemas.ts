@@ -3,8 +3,8 @@ import { z } from 'zod';
 export const LeadSourceEnum = z.enum(['lp_sprout', 'lp_community', 'site_spark', 'indicacao', 'rd_pipe']);
 export type LeadSource = z.infer<typeof LeadSourceEnum>;
 
-export const AlertTypeEnum = z.enum(['lead_incompleto', 'erro_tecnico']);
-export const SeverityEnum = z.enum(['warning', 'error', 'critical']);
+export const AlertTypeEnum = z.enum(['lead_incompleto', 'erro_tecnico', 'lead_completo']);
+export const SeverityEnum = z.enum(['warning', 'error', 'critical', 'info']);
 export const StatusEnum = z.enum(['open', 'resolved', 'ignored']);
 
 export const LeadIncompletoSchema = z.object({
@@ -29,7 +29,7 @@ export const ErroTecnicoSchema = z.object({
 export interface FieldDiag { campo: string; motivo: string; }
 
 export interface Diagnostico {
-  tipo: 'lead_incompleto' | 'erro_tecnico';
+  tipo: 'lead_incompleto' | 'erro_tecnico' | 'lead_completo';
   // lead_incompleto
   resumo?: string;
   campos?: FieldDiag[];
@@ -42,8 +42,8 @@ export interface Diagnostico {
 
 export interface Alert {
   id: string;
-  tipo: 'lead_incompleto' | 'erro_tecnico';
-  severity: 'warning' | 'error' | 'critical';
+  tipo: 'lead_incompleto' | 'erro_tecnico' | 'lead_completo';
+  severity: 'warning' | 'error' | 'critical' | 'info';
   workflow_id: string;
   workflow_name: string;
   execution_id?: string;
