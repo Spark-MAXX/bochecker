@@ -406,6 +406,15 @@ async function startServer() {
     res.json(data);
   });
 
+  // Extrai os campos canônicos do lead a partir do payload bruto (fontes têm nomes diferentes)
+  const extractLeadFields = (payload: Record<string, any>) => ({
+    lead_nome:     payload.nome || payload.lead_nome || payload.indicado_nome || null,
+    lead_email:    payload.email || payload.lead_email || payload.indicado_email || null,
+    lead_telefone: payload.telefone || payload.lead_telefone || payload.indicado_telefone || null,
+    lead_empresa:  payload.empresa || payload.lead_empresa || payload.indicado_empresa || null,
+    produto:       payload.produto || payload.produto_tag || null,
+  });
+
   // POST /api/validate/lead — valida campos obrigatórios de um lead
   // Chamado pelo n8n no início de cada workflow com o payload completo do lead
   app.post('/api/validate/lead', webhookAuth, async (req, res) => {
@@ -419,8 +428,25 @@ async function startServer() {
     }
 
     const missingFields = validateLeadFields(payload, lead_source as LeadSource);
+    const wfId = workflow_id || lead_source;
+    const wfName = workflow_name || LEAD_SOURCE_LABELS[lead_source as LeadSource] || lead_source;
+    const leadFields = extractLeadFields(payload);
 
     if (missingFields.length === 0) {
+      // Persistir lead completo no monitor
+      try {
+        await supabaseAdmin.from('leads').insert({
+          workflow_id: wfId,
+          workflow_name: wfName,
+          execution_id: execution_id || null,
+          lead_source,
+          status: 'completo',
+          ...leadFields,
+          payload_original: payload,
+        });
+      } catch (err) {
+        logger.error({ err }, 'Falha ao persistir lead completo');
+      }
       return res.json({ valid: true, missing: [], message: 'Lead completo ✅' });
     }
 
@@ -428,11 +454,11 @@ async function startServer() {
       const alertData = {
         tipo: 'lead_incompleto',
         severity: missingFields.length >= 3 ? 'error' : 'warning',
-        workflow_id: workflow_id || lead_source,
-        workflow_name: workflow_name || LEAD_SOURCE_LABELS[lead_source as LeadSource] || lead_source,
+        workflow_id: wfId,
+        workflow_name: wfName,
         execution_id: execution_id || null,
-        lead_email: payload.email || payload.indicado_email || null,
-        lead_nome: payload.nome || payload.indicado_nome || null,
+        lead_email: leadFields.lead_email,
+        lead_nome: leadFields.lead_nome,
         campos_faltantes: missingFields,
         payload_original: payload,
         status: 'open',
@@ -446,6 +472,23 @@ async function startServer() {
 
       if (error) throw error;
 
+      // Persistir lead incompleto no monitor (linkado ao alerta)
+      try {
+        await supabaseAdmin.from('leads').insert({
+          workflow_id: wfId,
+          workflow_name: wfName,
+          execution_id: execution_id || null,
+          lead_source,
+          status: 'incompleto',
+          ...leadFields,
+          campos_faltantes: missingFields,
+          payload_original: payload,
+          alert_id: inserted.id,
+        });
+      } catch (err) {
+        logger.error({ err }, 'Falha ao persistir lead incompleto');
+      }
+
       await sendDiscordAlert(inserted);
       logger.warn({ lead_source, missingFields }, 'Lead incompleto detectado');
 
@@ -458,6 +501,77 @@ async function startServer() {
     } catch (err: any) {
       logger.error(err);
       return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/leads — listagem de leads recebidos (completos e incompletos)
+  app.get('/api/leads', async (req, res) => {
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Database service unavailable' });
+
+    const { status, lead_source, workflow_id, search, from, to, page = '1', limit = '50' } = req.query;
+    let query = supabaseAdmin.from('leads').select('*', { count: 'exact' });
+
+    if (status)      query = query.eq('status', status);
+    if (lead_source) query = query.eq('lead_source', lead_source);
+    if (workflow_id) query = query.eq('workflow_id', workflow_id);
+    if (from)        query = query.gte('created_at', from);
+    if (to)          query = query.lte('created_at', to);
+    if (search) {
+      const s = String(search).replace(/[%_]/g, '');
+      query = query.or(`lead_email.ilike.%${s}%,lead_nome.ilike.%${s}%,lead_empresa.ilike.%${s}%`);
+    }
+
+    const fromIdx = (Number(page) - 1) * Number(limit);
+    const toIdx = fromIdx + Number(limit) - 1;
+
+    const { data, count, error } = await query
+      .order('created_at', { ascending: false })
+      .range(fromIdx, toIdx);
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ data, count, page: Number(page), limit: Number(limit) });
+  });
+
+  // GET /api/leads/stats — contadores agregados
+  app.get('/api/leads/stats', async (req, res) => {
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Database service unavailable' });
+
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const since7d  = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000).toISOString();
+
+    try {
+      const [completos24h, incompletos24h, completosToday, incompletosToday, completos7d, incompletos7d] = await Promise.all([
+        supabaseAdmin.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'completo').gte('created_at', since24h),
+        supabaseAdmin.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'incompleto').gte('created_at', since24h),
+        supabaseAdmin.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'completo').gte('created_at', today.toISOString()),
+        supabaseAdmin.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'incompleto').gte('created_at', today.toISOString()),
+        supabaseAdmin.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'completo').gte('created_at', since7d),
+        supabaseAdmin.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'incompleto').gte('created_at', since7d),
+      ]);
+
+      const total24h = (completos24h.count || 0) + (incompletos24h.count || 0);
+      const totalToday = (completosToday.count || 0) + (incompletosToday.count || 0);
+      const total7d = (completos7d.count || 0) + (incompletos7d.count || 0);
+
+      res.json({
+        completos_24h: completos24h.count || 0,
+        incompletos_24h: incompletos24h.count || 0,
+        total_24h: total24h,
+        completos_today: completosToday.count || 0,
+        incompletos_today: incompletosToday.count || 0,
+        total_today: totalToday,
+        completos_7d: completos7d.count || 0,
+        incompletos_7d: incompletos7d.count || 0,
+        total_7d: total7d,
+        completion_rate_24h:  total24h  > 0 ? Math.round((completos24h.count  || 0) / total24h  * 100) : 0,
+        completion_rate_today: totalToday > 0 ? Math.round((completosToday.count || 0) / totalToday * 100) : 0,
+        completion_rate_7d:   total7d   > 0 ? Math.round((completos7d.count   || 0) / total7d   * 100) : 0,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 

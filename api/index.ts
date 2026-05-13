@@ -164,6 +164,17 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Extrai os campos canônicos do lead a partir do payload bruto
+function extractLeadFields(payload: Record<string, any>) {
+  return {
+    lead_nome:     payload.nome || payload.lead_nome || payload.indicado_nome || null,
+    lead_email:    payload.email || payload.lead_email || payload.indicado_email || null,
+    lead_telefone: payload.telefone || payload.lead_telefone || payload.indicado_telefone || null,
+    lead_empresa:  payload.empresa || payload.lead_empresa || payload.indicado_empresa || null,
+    produto:       payload.produto || payload.produto_tag || null,
+  };
+}
+
 app.post('/api/validate/lead', webhookAuth, async (req, res) => {
   const db = getSupabase();
   if (!db) return res.status(503).json({ error: 'Database unavailable' });
@@ -171,23 +182,33 @@ app.post('/api/validate/lead', webhookAuth, async (req, res) => {
   if (!lead_source || !payload) return res.status(400).json({ error: 'lead_source e payload obrigatórios' });
 
   const missing = getMissingFields(payload, lead_source);
-  const leadEmail = payload.email || payload.indicado_email || null;
+  const wfId = workflow_id || lead_source;
   const wfName = workflow_name || LEAD_SOURCE_LABELS[lead_source] || lead_source;
+  const leadFields = extractLeadFields(payload);
 
   if (!missing.length) {
     // Lead válido — auto-resolve alertas abertos desse email no mesmo workflow
-    if (leadEmail && db) {
+    if (leadFields.lead_email && db) {
       await db.from('alerts')
         .update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: 'auto:resubmit_ok' })
-        .eq('lead_email', leadEmail)
-        .eq('workflow_id', workflow_id || lead_source)
+        .eq('lead_email', leadFields.lead_email)
+        .eq('workflow_id', wfId)
         .eq('tipo', 'lead_incompleto')
         .eq('status', 'open');
     }
+    // Persistir lead completo no monitor
+    try {
+      await db.from('leads').insert({
+        workflow_id: wfId, workflow_name: wfName,
+        execution_id: execution_id || null, lead_source,
+        status: 'completo', ...leadFields, payload_original: payload,
+      });
+    } catch (e) { console.error('Failed to persist complete lead', e); }
+
     await notifyDiscordSuccess({
       lead_source, workflow_name: wfName,
-      lead_nome: payload.nome || payload.indicado_nome || null,
-      lead_email: leadEmail, execution_id: execution_id || null,
+      lead_nome: leadFields.lead_nome, lead_email: leadFields.lead_email,
+      execution_id: execution_id || null,
     });
     return res.json({ valid: true, missing: [], message: 'Lead completo ✅' });
   }
@@ -208,21 +229,19 @@ app.post('/api/validate/lead', webhookAuth, async (req, res) => {
     const alertPayload: any = {
       tipo: 'lead_incompleto',
       severity: missing.length >= 3 ? 'error' : 'warning',
-      workflow_id: workflow_id || lead_source,
-      workflow_name: wfName,
+      workflow_id: wfId, workflow_name: wfName,
       execution_id: execution_id || null,
-      lead_email: leadEmail,
-      lead_nome: payload.nome || payload.indicado_nome || null,
+      lead_email: leadFields.lead_email, lead_nome: leadFields.lead_nome,
       campos_faltantes: missing, payload_original: payload, status: 'open',
       diagnostico,
     };
 
     // Deduplicação: atualiza alerta aberto existente p/ mesmo email+workflow em vez de criar novo
     let existingId: string | null = null;
-    if (leadEmail) {
+    if (leadFields.lead_email) {
       const { data: existing } = await db.from('alerts')
-        .select('id').eq('lead_email', leadEmail)
-        .eq('workflow_id', workflow_id || lead_source)
+        .select('id').eq('lead_email', leadFields.lead_email)
+        .eq('workflow_id', wfId)
         .eq('tipo', 'lead_incompleto').eq('status', 'open').maybeSingle();
       if (existing) existingId = existing.id;
     }
@@ -234,8 +253,81 @@ app.post('/api/validate/lead', webhookAuth, async (req, res) => {
       ({ data: inserted, error } = await db.from('alerts').upsert(alertPayload, { onConflict: 'workflow_id,execution_id,tipo' }).select().single());
     }
     if (error) throw error;
+
+    // Persistir lead incompleto no monitor (linkado ao alerta)
+    try {
+      await db.from('leads').insert({
+        workflow_id: wfId, workflow_name: wfName,
+        execution_id: execution_id || null, lead_source,
+        status: 'incompleto', ...leadFields,
+        campos_faltantes: missing, payload_original: payload,
+        alert_id: inserted.id,
+      });
+    } catch (e) { console.error('Failed to persist incomplete lead', e); }
+
     await notifyDiscord(inserted);
     res.status(201).json({ valid: false, missing, alert_id: inserted.id, message: `${missing.length} campo(s) faltando: ${missing.join(', ')}` });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/leads — listagem de leads recebidos
+app.get('/api/leads', async (req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+
+  const { status, lead_source, workflow_id, search, from, to, page = '1', limit = '50' } = req.query;
+  let q = db.from('leads').select('*', { count: 'exact' });
+
+  if (status)      q = q.eq('status', status);
+  if (lead_source) q = q.eq('lead_source', lead_source);
+  if (workflow_id) q = q.eq('workflow_id', workflow_id);
+  if (from)        q = q.gte('created_at', from);
+  if (to)          q = q.lte('created_at', to);
+  if (search) {
+    const s = String(search).replace(/[%_]/g, '');
+    q = q.or(`lead_email.ilike.%${s}%,lead_nome.ilike.%${s}%,lead_empresa.ilike.%${s}%`);
+  }
+
+  const fromIdx = (Number(page) - 1) * Number(limit);
+  const { data, count, error } = await q
+    .order('created_at', { ascending: false })
+    .range(fromIdx, fromIdx + Number(limit) - 1);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ data, count, page: Number(page), limit: Number(limit) });
+});
+
+// GET /api/leads/stats — contadores agregados
+app.get('/api/leads/stats', async (req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const since7d  = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const [c24, i24, cT, iT, c7, i7] = await Promise.all([
+      db.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'completo').gte('created_at', since24h),
+      db.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'incompleto').gte('created_at', since24h),
+      db.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'completo').gte('created_at', today.toISOString()),
+      db.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'incompleto').gte('created_at', today.toISOString()),
+      db.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'completo').gte('created_at', since7d),
+      db.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'incompleto').gte('created_at', since7d),
+    ]);
+
+    const total24h = (c24.count || 0) + (i24.count || 0);
+    const totalToday = (cT.count || 0) + (iT.count || 0);
+    const total7d = (c7.count || 0) + (i7.count || 0);
+
+    res.json({
+      completos_24h: c24.count || 0, incompletos_24h: i24.count || 0, total_24h: total24h,
+      completos_today: cT.count || 0, incompletos_today: iT.count || 0, total_today: totalToday,
+      completos_7d: c7.count || 0, incompletos_7d: i7.count || 0, total_7d: total7d,
+      completion_rate_24h:  total24h  > 0 ? Math.round((c24.count || 0) / total24h  * 100) : 0,
+      completion_rate_today: totalToday > 0 ? Math.round((cT.count || 0) / totalToday * 100) : 0,
+      completion_rate_7d:   total7d   > 0 ? Math.round((c7.count  || 0) / total7d   * 100) : 0,
+    });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 

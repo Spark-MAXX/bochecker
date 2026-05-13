@@ -5,7 +5,8 @@ import AlertsTable from './components/AlertsTable';
 import Charts from './components/Charts';
 import Filters from './components/Filters';
 import WorkflowsPanel from './components/WorkflowsPanel';
-import { type Alert } from './lib/schemas';
+import LeadsMonitor from './components/LeadsMonitor';
+import { type Alert, type LeadsStats } from './lib/schemas';
 import { Bell, RefreshCcw, Sun, Moon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -15,10 +16,12 @@ export default function App() {
     openCount: 0, resolvedToday: 0, totalWeek: 0,
     recent: [] as Alert[], workflows: [] as any[],
   });
+  const [leadsStats, setLeadsStats] = useState<LeadsStats | null>(null);
   const [workflowStats, setWorkflowStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [filters, setFilters] = useState({ status: 'open', tipo: '' });
+  const [leadsRefreshKey, setLeadsRefreshKey] = useState(0);
 
   // ── Theme ──────────────────────────────────────────────────────────────────
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -39,19 +42,22 @@ export default function App() {
       const queryParams = new URLSearchParams();
       if (filters.status) queryParams.append('status', filters.status);
       if (filters.tipo) queryParams.append('tipo', filters.tipo);
-      const [alertsRes, statsRes, wfStatsRes] = await Promise.all([
+      const [alertsRes, statsRes, wfStatsRes, leadsStatsRes] = await Promise.all([
         fetch(`/api/alerts?${queryParams.toString()}`),
         fetch('/api/dashboard/stats'),
         fetch('/api/n8n/workflow-stats'),
+        fetch('/api/leads/stats'),
       ]);
       const alertsData  = await alertsRes.json();
       const statsData   = await statsRes.json();
       const wfStatsData = wfStatsRes.ok ? await wfStatsRes.json() : [];
+      const leadsStatsData = leadsStatsRes.ok ? await leadsStatsRes.json() : null;
       setAlerts(alertsData.data || []);
       setStats({
         openCount: statsData.openCount || 0, resolvedToday: statsData.resolvedToday || 0,
         totalWeek: statsData.totalWeek || 0, recent: statsData.recent || [], workflows: statsData.workflows || [],
       });
+      setLeadsStats(leadsStatsData);
       setWorkflowStats(Array.isArray(wfStatsData) ? wfStatsData : []);
     } catch (error) { console.error('Error fetching data:', error); }
     finally { setLoading(false); }
@@ -80,6 +86,10 @@ export default function App() {
     const subscription = supabase.channel('alerts_channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'n8n_executions' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
+        fetchData();
+        setLeadsRefreshKey(k => k + 1);
+      })
       .subscribe();
     return () => { supabase.removeChannel(subscription); };
   }, [fetchData]);
@@ -133,7 +143,12 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: 'easeOut' }}>
-          <StatsHeader openCount={stats.openCount} resolvedToday={stats.resolvedToday} totalWeek={stats.totalWeek} />
+          <StatsHeader
+            openCount={stats.openCount}
+            resolvedToday={stats.resolvedToday}
+            totalWeek={stats.totalWeek}
+            leadsStats={leadsStats}
+          />
 
           <div className="grid grid-cols-12 gap-6">
             <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
@@ -168,6 +183,8 @@ export default function App() {
               </div>
 
               <WorkflowsPanel workflows={workflowStats.length ? workflowStats : stats.workflows} onSyncNow={handleSyncNow} syncing={syncing} />
+
+              <LeadsMonitor refreshKey={leadsRefreshKey} />
             </div>
 
             {/* Sidebar */}

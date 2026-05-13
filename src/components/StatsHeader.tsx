@@ -1,41 +1,48 @@
 import React from 'react';
-import { AlertCircle, CheckCircle, TrendingDown, Clock } from 'lucide-react';
+import { AlertCircle, CheckCircle, Users, Activity } from 'lucide-react';
+import type { LeadsStats } from '../lib/schemas';
 
 interface StatsHeaderProps {
   openCount: number;
   resolvedToday: number;
   totalWeek: number;
+  leadsStats?: LeadsStats | null;
 }
 
-export default function StatsHeader({ openCount, resolvedToday, totalWeek }: StatsHeaderProps) {
+export default function StatsHeader({ openCount, resolvedToday, totalWeek, leadsStats }: StatsHeaderProps) {
+  const completionRate = leadsStats?.completion_rate_24h ?? 0;
+  const completos24h = leadsStats?.completos_24h ?? 0;
+  const total24h = leadsStats?.total_24h ?? 0;
+  const incompletos24h = leadsStats?.incompletos_24h ?? 0;
+
   const stats = [
     {
       label: 'Alertas Abertos',
       value: openCount,
       icon: AlertCircle,
       color: 'text-rose-500',
-      description: '+2 desde 1h',
+      description: `${resolvedToday} resolvidos hoje`,
     },
     {
-      label: 'Resolvidos Hoje',
-      value: resolvedToday,
+      label: 'Leads Completos (24h)',
+      value: completos24h,
       icon: CheckCircle,
       color: 'text-emerald-500',
-      description: 'Eficiência 92%',
+      description: `${total24h} recebidos · ${incompletos24h} incompletos`,
     },
     {
-      label: 'Lead Completion',
-      value: `${((totalWeek - openCount) / (totalWeek || 1) * 100).toFixed(1)}%`,
-      icon: Clock,
+      label: 'Taxa de Completude (24h)',
+      value: `${completionRate}%`,
+      icon: Users,
+      color: completionRate >= 85 ? 'text-emerald-500' : completionRate >= 60 ? 'text-amber-500' : 'text-rose-500',
+      description: `Meta 85% · 7d ${leadsStats?.completion_rate_7d ?? 0}%`,
+    },
+    {
+      label: 'Volume (7d)',
+      value: leadsStats?.total_7d ?? totalWeek,
+      icon: Activity,
       color: 'text-cyan-500',
-      description: 'Meta 85%',
-    },
-    {
-      label: 'Error Rate (7d)',
-      value: `${((openCount / (totalWeek || 1)) * 100).toFixed(1)}%`,
-      icon: TrendingDown,
-      color: 'text-amber-500',
-      description: 'Stable',
+      description: `${leadsStats?.completos_7d ?? 0} OK · ${leadsStats?.incompletos_7d ?? 0} falhos`,
     },
   ];
 
