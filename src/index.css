@@ -6,75 +6,144 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-/* ── Dark theme (default) ─────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+   ─────────────────────────────────────────────────────────────────────────
+   Both themes share the same token names so components stay theme-agnostic.
+   Tokens are grouped by:
+     bg-*         Surfaces (base / card / nav / input / muted)
+     border-*     Strokes
+     text-*       Text scale 1 (highest) → 4 (lowest contrast)
+     c-*          Semantic (error / warning / info / success)
+     accent / brand
+     shadow / glow
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── DARK (default) — deep navy + cyan accent ──────────────────────────── */
 :root {
-  --bg-base:       #020617;
-  --bg-card:       rgba(15,23,42,0.60);
-  --bg-card-hover: rgba(15,23,42,0.80);
-  --bg-nav:        rgba(2,6,23,0.80);
-  --bg-input:      rgba(15,23,42,0.40);
-  --bg-muted:      rgba(30,41,59,0.20);
+  /* Surfaces */
+  --bg-base:        #060B18;
+  --bg-base-soft:   #0A0F1F;
+  --bg-card:        rgba(16, 22, 40, 0.65);
+  --bg-card-solid:  #101628;
+  --bg-card-hover:  rgba(22, 30, 52, 0.85);
+  --bg-nav:         rgba(6, 11, 24, 0.85);
+  --bg-input:       rgba(16, 22, 40, 0.55);
+  --bg-muted:       rgba(30, 41, 70, 0.30);
 
-  --border:        #1e293b;
-  --border-light:  rgba(30,41,59,0.50);
+  /* Borders */
+  --border:         #1F2937;
+  --border-light:   rgba(31, 41, 55, 0.55);
+  --border-strong:  #334155;
 
-  --text-1:  #f1f5f9;
-  --text-2:  #94a3b8;
-  --text-3:  #64748b;
-  --text-4:  #334155;
+  /* Text scale */
+  --text-1:  #F8FAFC;
+  --text-2:  #CBD5E1;
+  --text-3:  #94A3B8;
+  --text-4:  #475569;
 
-  /* Semantic colors — dark */
-  --c-error:    #f87171;
-  --c-warning:  #fbbf24;
-  --c-error-bg: rgba(248,113,113,0.08);
-  --c-warn-bg:  rgba(251,191,36,0.08);
-  --c-info:     #22d3ee;
-  --c-mono:     #94a3b8;
+  /* Semantic */
+  --c-error:    #F87171;
+  --c-warning:  #FBBF24;
+  --c-success:  #34D399;
+  --c-info:     #22D3EE;
+  --c-error-bg: rgba(248, 113, 113, 0.10);
+  --c-warn-bg:  rgba(251, 191, 36, 0.10);
+  --c-mono:     #94A3B8;
 
-  --glow-cyan:    0 0 15px rgba(6,182,212,0.5);
-  --glow-emerald: 0 0 8px  rgba(16,185,129,0.8);
-  --glow-rose:    0 0 10px rgba(225,29,72,0.4);
+  /* Brand accent */
+  --accent:        #06B6D4;
+  --accent-strong: #0891B2;
+  --accent-soft:   rgba(6, 182, 212, 0.14);
+  --accent-glow:   rgba(6, 182, 212, 0.45);
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45), 0 4px 8px rgba(0, 0, 0, 0.25);
+
+  --glow-cyan:    0 0 18px rgba(6, 182, 212, 0.45);
+  --glow-emerald: 0 0 10px rgba(16, 185, 129, 0.75);
+  --glow-rose:    0 0 12px rgba(225, 29, 72, 0.45);
+
+  /* Decorative gradients */
+  --grid-line: rgba(148, 163, 184, 0.04);
 }
 
-/* ── Light/Cream theme ────────────────────────────────────────────────────── */
+/* ── LIGHT — true off-white cream (paper) + deep cyan accent ───────────── */
 [data-theme="light"] {
-  --bg-base:       #F0E9DC;
-  --bg-card:       rgba(232,221,208,0.75);
-  --bg-card-hover: rgba(224,211,196,0.90);
-  --bg-nav:        rgba(235,226,213,0.92);
-  --bg-input:      rgba(232,221,208,0.60);
-  --bg-muted:      rgba(208,196,180,0.30);
+  /* Surfaces — paper-like cream palette */
+  --bg-base:        #FAF6EE;     /* off-white cream (slightly warm) */
+  --bg-base-soft:   #F5EFE2;     /* shade for ambient gradient */
+  --bg-card:        #FFFCF4;     /* slightly warmer than pure white */
+  --bg-card-solid:  #FFFCF4;
+  --bg-card-hover:  #FFFEFA;
+  --bg-nav:         rgba(250, 246, 238, 0.88);
+  --bg-input:       #FFFCF4;
+  --bg-muted:       #F1EADA;     /* subtle separator surface */
 
-  --border:        #C4B09A;
-  --border-light:  rgba(196,176,154,0.55);
+  /* Borders */
+  --border:         #E5DCC2;
+  --border-light:   rgba(229, 220, 194, 0.55);
+  --border-strong:  #C8BC9F;
 
-  --text-1:  #1A1209;
-  --text-2:  #3A2810;
-  --text-3:  #5A4020;
-  --text-4:  #7A5E38;
+  /* Text — warm-leaning grays for harmony with cream */
+  --text-1:  #1A1410;
+  --text-2:  #4A3E2E;
+  --text-3:  #756855;
+  --text-4:  #A89881;
 
-  /* Semantic colors — mais escuros no light para contraste */
-  --c-error:    #991B1B;
-  --c-warning:  #92400E;
-  --c-error-bg: rgba(153,27,27,0.08);
-  --c-warn-bg:  rgba(146,64,14,0.08);
+  /* Semantic — darker, higher contrast on cream */
+  --c-error:    #B91C1C;
+  --c-warning:  #B45309;
+  --c-success:  #047857;
   --c-info:     #0E7490;
-  --c-mono:     #3D2B0E;
+  --c-error-bg: rgba(185, 28, 28, 0.08);
+  --c-warn-bg:  rgba(180, 83, 9, 0.08);
+  --c-mono:     #4A3E2E;
 
-  --glow-cyan:    0 0 15px rgba(6,182,212,0.3);
-  --glow-emerald: 0 0 8px  rgba(16,185,129,0.5);
-  --glow-rose:    0 0 10px rgba(225,29,72,0.25);
+  /* Brand accent — darker cyan for legibility on cream */
+  --accent:        #0E7490;
+  --accent-strong: #155E75;
+  --accent-soft:   rgba(14, 116, 144, 0.10);
+  --accent-glow:   rgba(14, 116, 144, 0.20);
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(89, 64, 18, 0.06);
+  --shadow-md: 0 6px 18px rgba(89, 64, 18, 0.08), 0 1px 3px rgba(89, 64, 18, 0.05);
+  --shadow-lg: 0 18px 40px rgba(89, 64, 18, 0.10), 0 4px 12px rgba(89, 64, 18, 0.06);
+
+  --glow-cyan:    0 0 14px rgba(14, 116, 144, 0.30);
+  --glow-emerald: 0 0 10px rgba(4, 120, 87, 0.40);
+  --glow-rose:    0 0 12px rgba(185, 28, 28, 0.25);
+
+  --grid-line: rgba(101, 73, 22, 0.04);
 }
 
-/* ── Base ─────────────────────────────────────────────────────────────────── */
-body {
+/* ═══════════════════════════════════════════════════════════════════════════
+   BASE LAYER
+   ═══════════════════════════════════════════════════════════════════════ */
+
+html, body {
   @apply antialiased;
   background-color: var(--bg-base);
   color: var(--text-1);
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* ── Utility classes using CSS vars ──────────────────────────────────────── */
+body {
+  /* Subtle ambient gradient — barely perceptible, gives the page depth */
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, var(--accent-soft), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, var(--bg-base-soft), transparent 70%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UTILITY CLASSES
+   ═══════════════════════════════════════════════════════════════════════ */
+
 .theme-bg-base    { background-color: var(--bg-base); }
 .theme-bg-card    { background-color: var(--bg-card); }
 .theme-bg-nav     { background-color: var(--bg-nav); }
@@ -86,36 +155,136 @@ body {
 .theme-text-2     { color: var(--text-2); }
 .theme-text-3     { color: var(--text-3); }
 .theme-text-4     { color: var(--text-4); }
+.theme-accent     { color: var(--accent); }
+.theme-accent-bg  { background-color: var(--accent-soft); }
 
+/* Glass card — main surface primitive */
 .glass-card {
   background-color: var(--bg-card);
   border: 1px solid var(--border);
-  @apply rounded-xl shadow-inner backdrop-blur-sm;
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
 }
 
+.glass-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="light"] .glass-card {
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+}
+
+/* Elevation helpers */
+.shadow-elev-sm { box-shadow: var(--shadow-sm); }
+.shadow-elev-md { box-shadow: var(--shadow-md); }
+.shadow-elev-lg { box-shadow: var(--shadow-lg); }
+
+/* Glow helpers (semantic) */
 .glow-cyan    { box-shadow: var(--glow-cyan); }
 .glow-emerald { box-shadow: var(--glow-emerald); }
 .glow-rose    { box-shadow: var(--glow-rose); }
 
-/* ── Theme transition ─────────────────────────────────────────────────────── */
-*, *::before, *::after {
-  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.2s ease;
+/* Pill / chip */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid;
 }
 
-/* ── Number tabular (mantém alinhamento em métricas) ─────────────────────── */
-.tabular-nums { font-variant-numeric: tabular-nums; }
+/* Subtle dotted grid pattern for empty states */
+.grid-pattern {
+  background-image:
+    radial-gradient(var(--grid-line) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
 
-/* ── Scroll bar discreto para tabelas ─────────────────────────────────────── */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+/* ═══════════════════════════════════════════════════════════════════════════
+   FORM CONTROLS — unified styling
+   ═══════════════════════════════════════════════════════════════════════ */
+
+input, select, textarea {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+button:focus-visible, a:focus-visible, [role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+::selection {
+  background-color: var(--accent-soft);
+  color: var(--text-1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCROLLBAR
+   ═══════════════════════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
+  border: 2px solid var(--bg-base);
 }
-::-webkit-scrollbar-thumb:hover { background: var(--text-4); }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 
-/* ── Focus ring acessível ─────────────────────────────────────────────────── */
-button:focus-visible, input:focus-visible, select:focus-visible {
-  outline: 1px solid rgba(6,182,212,0.6);
-  outline-offset: 1px;
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TRANSITIONS — applied globally for theme switching smoothness
+   ═══════════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after {
+  transition-property: background-color, border-color, color, box-shadow, fill, stroke;
+  transition-duration: 0.2s;
+  transition-timing-function: ease;
+}
+
+/* Disable transitions during initial paint (avoid flash) */
+.no-anim, .no-anim * { transition: none !important; }
+
+/* Number tabular for metric alignment */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+.animate-pulse-soft { animation: pulse-soft 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-muted) 0%, var(--bg-card-hover) 50%, var(--bg-muted) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite linear;
+  border-radius: 6px;
 }

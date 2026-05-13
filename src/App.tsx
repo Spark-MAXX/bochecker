@@ -46,31 +46,43 @@ export default function App() {
       <nav className="h-16 border-b sticky top-0 z-50 backdrop-blur-md flex items-center justify-between px-8"
         style={{ backgroundColor: 'var(--bg-nav)', borderColor: 'var(--border)' }}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-cyan-500 rounded flex items-center justify-center glow-cyan transition-transform hover:scale-110 duration-300">
-            <Bell className="h-5 w-5 text-slate-950 stroke-[2.5px]" />
+          <div className="w-8 h-8 rounded flex items-center justify-center glow-cyan transition-transform hover:scale-110 duration-300"
+            style={{ backgroundColor: 'var(--accent)' }}>
+            <Bell className="h-5 w-5 stroke-[2.5px]" style={{ color: '#FFFFFF' }} />
           </div>
           <h1 className="text-xl font-bold tracking-tight uppercase" style={{ color: 'var(--text-1)' }}>
             Spark Maxx{' '}
-            <span className="text-cyan-400 opacity-80 font-mono text-base ml-1 tracking-normal">// Control Center</span>
+            <span className="opacity-90 font-mono text-base ml-1 tracking-normal"
+              style={{ color: 'var(--accent)' }}>// Control Center</span>
           </h1>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="hidden md:flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full glow-emerald bg-emerald-500 animate-pulse" />
+            <div className="w-2 h-2 rounded-full glow-emerald animate-pulse" style={{ backgroundColor: 'var(--c-success)' }} />
             <span className="text-[10px] font-mono uppercase tracking-[0.2em]" style={{ color: 'var(--text-3)' }}>
               System Operational
             </span>
           </div>
           <div className="h-4 w-px" style={{ backgroundColor: 'var(--border)' }} />
 
-          <button onClick={toggleTheme} className="p-2 rounded-lg transition-all hover:scale-105"
-            style={{ color: 'var(--text-3)' }} title={isDark ? 'Modo claro' : 'Modo escuro'}>
-            {isDark ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-slate-600" />}
+          <button onClick={toggleTheme}
+            className="p-2 rounded-lg transition-all hover:scale-105"
+            style={{ color: 'var(--text-2)', backgroundColor: 'transparent' }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--bg-muted)')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+            title={isDark ? 'Modo claro' : 'Modo escuro'}>
+            {isDark
+              ? <Sun  className="h-4 w-4" style={{ color: '#F59E0B' }} />
+              : <Moon className="h-4 w-4" style={{ color: 'var(--text-2)' }} />}
           </button>
 
-          <button onClick={() => setRefreshKey(k => k + 1)} className="p-2 rounded-lg transition-all"
-            style={{ color: 'var(--text-3)' }} title="Recarregar dados da aba atual">
+          <button onClick={() => setRefreshKey(k => k + 1)}
+            className="p-2 rounded-lg transition-all"
+            style={{ color: 'var(--text-2)', backgroundColor: 'transparent' }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--bg-muted)')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+            title="Recarregar dados da aba atual">
             <RefreshCcw className="h-4 w-4" />
           </button>
         </div>
@@ -96,11 +108,12 @@ export default function App() {
 
       <footer className="max-w-7xl mx-auto px-6 py-10 mt-12 flex justify-between items-center border-t"
         style={{ borderColor: 'var(--border-light)' }}>
-        <div className="text-[10px] font-mono uppercase tracking-widest" style={{ color: 'var(--text-4)' }}>
-          Spark Maxx Control Center // v4.0.0
+        <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest" style={{ color: 'var(--text-4)' }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
+          Spark Maxx Control Center · v4.1.0
         </div>
         <div className="text-[10px] font-mono" style={{ color: 'var(--text-3)' }}>
-          RD Station + n8n + Supabase // &copy; {new Date().getFullYear()}
+          RD Station + n8n + Supabase · &copy; {new Date().getFullYear()}
         </div>
       </footer>
     </div>

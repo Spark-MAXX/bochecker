@@ -29,7 +29,7 @@ export default function TabNav({ tabs, active, onChange }: TabNavProps) {
             {isActive && (
               <motion.div layoutId="active-tab-pill"
                 className="absolute inset-0 rounded-lg"
-                style={{ backgroundColor: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.35)' }}
+                style={{ backgroundColor: 'var(--accent-soft)', border: '1px solid var(--accent)' }}
                 transition={{ type: 'spring', stiffness: 380, damping: 30 }} />
             )}
             <span className="relative flex items-center gap-2">
@@ -37,7 +37,7 @@ export default function TabNav({ tabs, active, onChange }: TabNavProps) {
               {t.label}
               {t.badge != null && t.badge > 0 && (
                 <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold tabular-nums"
-                  style={{ backgroundColor: 'rgba(244,63,94,0.15)', color: '#f43f5e' }}>
+                  style={{ backgroundColor: 'var(--c-error-bg)', color: 'var(--c-error)', border: '1px solid var(--c-error)' }}>
                   {t.badge}
                 </span>
               )}
