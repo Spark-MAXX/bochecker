@@ -2,6 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import {
+  fetchOverview, fetchTimeseries, fetchFunnel,
+  fetchWorkflowsWithLatest, fetchWorkflowHistory,
+  fetchEmailsWithLatest, fetchWorstEmails, fetchTopWorkflows,
+  fetchSyncLog,
+} from '../src/lib/rd-queries';
 
 const app = express();
 app.use(cors());
@@ -414,6 +420,74 @@ app.get('/api/n8n/workflow-stats', async (req, res) => {
   }));
 
   res.json(stats);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RD Station — endpoints analíticos (mirrored from server.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+const rdDb = () => getSupabase();
+
+app.get('/api/rd/overview', async (_req, res) => {
+  const db = rdDb(); if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try { res.json(await fetchOverview(db)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/rd/timeseries', async (req, res) => {
+  const db = rdDb(); if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 90);
+  try { res.json(await fetchTimeseries(db, days)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/rd/funnel', async (_req, res) => {
+  const db = rdDb(); if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try { res.json(await fetchFunnel(db)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/rd/workflows', async (req, res) => {
+  const db = rdDb(); if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    const all = await fetchWorkflowsWithLatest(db);
+    const status = req.query.status as string | undefined;
+    res.json(status ? all.filter(w => w.status === status) : all);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/rd/workflows/top', async (req, res) => {
+  const db = rdDb(); if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try { res.json(await fetchTopWorkflows(db, Number(req.query.limit) || 10)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/rd/workflows/:id/history', async (req, res) => {
+  const db = rdDb(); if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 90);
+  try { res.json(await fetchWorkflowHistory(db, req.params.id, days)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/rd/emails', async (req, res) => {
+  const db = rdDb(); if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    res.json(await fetchEmailsWithLatest(db, {
+      limit: Number(req.query.limit) || 200,
+      status: (req.query.status as string) || undefined,
+      search: (req.query.search as string) || undefined,
+    }));
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/rd/emails/worst', async (req, res) => {
+  const db = rdDb(); if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try { res.json(await fetchWorstEmails(db, Number(req.query.minSent) || 50, Number(req.query.limit) || 10)); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/rd/sync-log', async (req, res) => {
+  const db = rdDb(); if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    res.json(await fetchSyncLog(db, {
+      source: (req.query.source as string) || undefined,
+      limit: Number(req.query.limit) || 50,
+    }));
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/n8n/sync', async (req, res) => {

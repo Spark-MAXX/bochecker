@@ -8,6 +8,12 @@ import { getSupabaseAdmin } from './src/lib/supabase.ts';
 import { sendDiscordAlert } from './src/lib/discord.ts';
 import { LeadIncompletoSchema, ErroTecnicoSchema } from './src/lib/schemas.ts';
 import { validateLeadFields, LEAD_SOURCE_LABELS, type LeadSource } from './src/lib/validation-config.ts';
+import {
+  fetchOverview, fetchTimeseries, fetchFunnel,
+  fetchWorkflowsWithLatest, fetchWorkflowHistory,
+  fetchEmailsWithLatest, fetchWorstEmails, fetchTopWorkflows,
+  fetchSyncLog,
+} from './src/lib/rd-queries.ts';
 
 const logger = pino({
   transport: {
@@ -496,6 +502,88 @@ async function startServer() {
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // RD Station — endpoints analíticos
+  // Lê de rd_workflows, rd_workflow_metrics, rd_emails, rd_email_metrics, rd_sync_log
+  // ────────────────────────────────────────────────────────────────────────────
+
+  const requireDb = (req: express.Request, res: express.Response): any => {
+    const db = getSupabaseAdmin();
+    if (!db) { res.status(503).json({ error: 'Database service unavailable' }); return null; }
+    return db;
+  };
+
+  app.get('/api/rd/overview', async (req, res) => {
+    const db = requireDb(req, res); if (!db) return;
+    try { res.json(await fetchOverview(db)); }
+    catch (e: any) { logger.error(e); res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/rd/timeseries', async (req, res) => {
+    const db = requireDb(req, res); if (!db) return;
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 90);
+    try { res.json(await fetchTimeseries(db, days)); }
+    catch (e: any) { logger.error(e); res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/rd/funnel', async (req, res) => {
+    const db = requireDb(req, res); if (!db) return;
+    try { res.json(await fetchFunnel(db)); }
+    catch (e: any) { logger.error(e); res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/rd/workflows', async (req, res) => {
+    const db = requireDb(req, res); if (!db) return;
+    try {
+      const all = await fetchWorkflowsWithLatest(db);
+      const { status } = req.query;
+      const filtered = status ? all.filter(w => w.status === status) : all;
+      res.json(filtered);
+    } catch (e: any) { logger.error(e); res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/rd/workflows/top', async (req, res) => {
+    const db = requireDb(req, res); if (!db) return;
+    try { res.json(await fetchTopWorkflows(db, Number(req.query.limit) || 10)); }
+    catch (e: any) { logger.error(e); res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/rd/workflows/:id/history', async (req, res) => {
+    const db = requireDb(req, res); if (!db) return;
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 90);
+    try { res.json(await fetchWorkflowHistory(db, req.params.id, days)); }
+    catch (e: any) { logger.error(e); res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/rd/emails', async (req, res) => {
+    const db = requireDb(req, res); if (!db) return;
+    try {
+      const emails = await fetchEmailsWithLatest(db, {
+        limit: Number(req.query.limit) || 200,
+        status: (req.query.status as string) || undefined,
+        search: (req.query.search as string) || undefined,
+      });
+      res.json(emails);
+    } catch (e: any) { logger.error(e); res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/rd/emails/worst', async (req, res) => {
+    const db = requireDb(req, res); if (!db) return;
+    try {
+      res.json(await fetchWorstEmails(db, Number(req.query.minSent) || 50, Number(req.query.limit) || 10));
+    } catch (e: any) { logger.error(e); res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/rd/sync-log', async (req, res) => {
+    const db = requireDb(req, res); if (!db) return;
+    try {
+      res.json(await fetchSyncLog(db, {
+        source: (req.query.source as string) || undefined,
+        limit: Number(req.query.limit) || 50,
+      }));
+    } catch (e: any) { logger.error(e); res.status(500).json({ error: e.message }); }
   });
 
   // Polling automático a cada 60 segundos
