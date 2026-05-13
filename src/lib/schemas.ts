@@ -59,3 +59,36 @@ export interface Alert {
   resolved_by?: string;
   created_at: string;
 }
+
+export interface Lead {
+  id: string;
+  workflow_id: string;
+  workflow_name: string;
+  execution_id?: string | null;
+  lead_source?: string | null;
+  status: 'completo' | 'incompleto';
+  lead_nome?: string | null;
+  lead_email?: string | null;
+  lead_telefone?: string | null;
+  lead_empresa?: string | null;
+  produto?: string | null;
+  campos_faltantes?: string[] | null;
+  payload_original?: any;
+  alert_id?: string | null;
+  created_at: string;
+}
+
+export interface LeadsStats {
+  completos_24h: number;
+  incompletos_24h: number;
+  total_24h: number;
+  completos_today: number;
+  incompletos_today: number;
+  total_today: number;
+  completos_7d: number;
+  incompletos_7d: number;
+  total_7d: number;
+  completion_rate_24h: number;
+  completion_rate_today: number;
+  completion_rate_7d: number;
+}
