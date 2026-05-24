@@ -1,8 +1,7 @@
 import express from 'express';
 import cors from 'cors';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { fetchUnifiedLeads, fetchUnifiedStats, type UnifiedFilters } from '../src/lib/leads-unified';
 
 const app = express();
 app.use(cors());
@@ -333,6 +332,156 @@ app.get('/api/leads/stats', async (req, res) => {
 });
 
 // ── Funil unificado de leads (lê as bases reais: Framer, RD→Pipedrive, Webinar) ──
+// NOTA: lógica duplicada de src/lib/leads-unified.ts e inlinada aqui de propósito —
+// o bundle serverless da Vercel não resolve import relativo fora de /api em ESM.
+type LeadSourceKey = 'framer' | 'rd_pipedrive' | 'webinar';
+const U_SOURCE_LABELS: Record<LeadSourceKey, string> = {
+  framer: 'LP Framer', rd_pipedrive: 'RD → Pipedrive', webinar: 'LP Webinar',
+};
+type FunnelStage = 'incompleto' | 'capturado' | 'inscrito' | 'nao_processado' | 'processado_sem_deal' | 'deal_criado';
+const U_STAGE_LABELS: Record<FunnelStage, string> = {
+  incompleto: 'Incompleto', capturado: 'Capturado', inscrito: 'Inscrito',
+  nao_processado: 'Não processado', processado_sem_deal: 'Processado (sem deal)', deal_criado: 'Deal criado',
+};
+type Health = 'ok' | 'atencao' | 'erro';
+interface UnifiedLead {
+  uid: string; source: LeadSourceKey; source_label: string; source_id: number | string;
+  nome: string | null; email: string | null; telefone: string | null; empresa: string | null; produto: string | null;
+  created_at: string; is_indicacao: boolean; utm_source: string | null; utm_medium: string | null; utm_campaign: string | null;
+  status: 'completo' | 'incompleto'; missing: string[]; stage: FunnelStage; stage_label: string; health: Health;
+  routing: { rota_definida: string | null; rota_encontrada: boolean | null; destino_pipeline: string | null; destino_stage: string | null; destino_owner: string | null; processado: boolean | null; motivo_rota: string | null } | null;
+  pipedrive: { person_id: number | null; deal_id: number | null } | null;
+  is_duplicate: boolean; also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[]; raw: Record<string, any>;
+}
+interface UnifiedFilters {
+  source?: LeadSourceKey; status?: 'completo' | 'incompleto'; stage?: FunnelStage; health?: Health;
+  problemOnly?: boolean; dupOnly?: boolean; search?: string; from?: string; to?: string; limit?: number;
+}
+const U_REQUIRED_CORE = ['nome', 'email', 'telefone'] as const;
+const uIsEmpty = (v: any) => v === undefined || v === null || v === '' || v === 'null' || (Array.isArray(v) && v.length === 0);
+const U_SELECT: Record<LeadSourceKey, string> = {
+  framer: 'id,criado_em,email,nome,telefone,empresa,cargo,produto,is_indicacao,utm_source,utm_medium,utm_campaign,page_url,origem_canal,conversion_identifier,o_que_busca,faz_influencia,tags',
+  rd_pipedrive: 'id,criado_em,lead_nome,lead_email,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id,conversion_identifier,lp_origem',
+  webinar: 'id,criado_em,email,nome,telefone,empresa,cargo,produto,is_indicacao,utm_source,utm_medium,utm_campaign,page_url,origem_canal,conversion_identifier',
+};
+const U_TABLE: Record<LeadSourceKey, string> = { framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
+
+function uClassify(source: LeadSourceKey, status: 'completo' | 'incompleto', routing: UnifiedLead['routing'], pipedrive: UnifiedLead['pipedrive']): { stage: FunnelStage; health: Health } {
+  if (status === 'incompleto') return { stage: 'incompleto', health: 'atencao' };
+  if (source === 'rd_pipedrive') {
+    if (pipedrive?.deal_id) return { stage: 'deal_criado', health: 'ok' };
+    if (routing?.processado === true) return { stage: 'processado_sem_deal', health: 'atencao' };
+    return { stage: 'nao_processado', health: 'erro' };
+  }
+  if (source === 'webinar') return { stage: 'inscrito', health: 'ok' };
+  return { stage: 'capturado', health: 'ok' };
+}
+
+function uNormalize(source: LeadSourceKey, row: any): UnifiedLead {
+  const common = source === 'rd_pipedrive'
+    ? { nome: row.lead_nome ?? null, email: row.lead_email ?? null, telefone: row.lead_telefone ?? null, empresa: row.lead_empresa ?? null, produto: row.produto_interesse ?? null }
+    : { nome: row.nome ?? null, email: row.email ?? null, telefone: row.telefone ?? null, empresa: row.empresa ?? null, produto: row.produto ?? null };
+  const missing = U_REQUIRED_CORE.filter((f) => uIsEmpty((common as any)[f]));
+  const status: UnifiedLead['status'] = missing.length ? 'incompleto' : 'completo';
+  let routing: UnifiedLead['routing'] = null;
+  let pipedrive: UnifiedLead['pipedrive'] = null;
+  if (source === 'rd_pipedrive') {
+    routing = {
+      rota_definida: row.rota_definida ?? null, rota_encontrada: row.rota_encontrada ?? null,
+      destino_pipeline: row.destino_pipeline_nome ?? null, destino_stage: row.destino_stage_nome ?? null,
+      destino_owner: row.destino_owner_nome ?? null, processado: row.processado ?? null, motivo_rota: row.motivo_rota ?? null,
+    };
+    pipedrive = { person_id: row.pipedrive_person_id ?? null, deal_id: row.pipedrive_deal_id ?? null };
+  }
+  const { stage, health } = uClassify(source, status, routing, pipedrive);
+  return {
+    uid: `${source}:${row.id}`, source, source_label: U_SOURCE_LABELS[source], source_id: row.id, ...common,
+    created_at: row.criado_em, is_indicacao: !!row.is_indicacao,
+    utm_source: row.utm_source ?? null, utm_medium: row.utm_medium ?? null, utm_campaign: row.utm_campaign ?? null,
+    status, missing, stage, stage_label: U_STAGE_LABELS[stage], health, routing, pipedrive,
+    is_duplicate: false, also_in: [], raw: row,
+  };
+}
+
+function uIndexDuplicates(leads: UnifiedLead[]): void {
+  const byEmail = new Map<string, UnifiedLead[]>();
+  for (const l of leads) {
+    const key = (l.email || '').trim().toLowerCase();
+    if (!key) continue;
+    const arr = byEmail.get(key) || []; arr.push(l); byEmail.set(key, arr);
+  }
+  for (const group of byEmail.values()) {
+    if (group.length < 2) continue;
+    for (const l of group) {
+      l.is_duplicate = true;
+      l.also_in = group.filter((o) => o.uid !== l.uid).map((o) => ({ source: o.source, stage: o.stage, deal_id: o.pipedrive?.deal_id ?? null }));
+    }
+  }
+}
+
+async function fetchUnifiedLeads(db: SupabaseClient, opts: UnifiedFilters = {}): Promise<{ data: UnifiedLead[]; total: number }> {
+  const sources: LeadSourceKey[] = opts.source ? [opts.source] : ['framer', 'rd_pipedrive', 'webinar'];
+  const from = opts.from || new Date(Date.now() - 30 * 86400_000).toISOString();
+  const all: UnifiedLead[] = [];
+  await Promise.all(sources.map(async (src) => {
+    let q = db.from(U_TABLE[src]).select(U_SELECT[src]).gte('criado_em', from).order('criado_em', { ascending: false }).limit(2000);
+    if (opts.to) q = q.lte('criado_em', opts.to);
+    const { data, error } = await q;
+    if (error) throw new Error(`${U_TABLE[src]}: ${error.message}`);
+    (data || []).forEach((row: any) => all.push(uNormalize(src, row)));
+  }));
+  uIndexDuplicates(all);
+  let filtered = all;
+  if (opts.status) filtered = filtered.filter((l) => l.status === opts.status);
+  if (opts.stage) filtered = filtered.filter((l) => l.stage === opts.stage);
+  if (opts.health) filtered = filtered.filter((l) => l.health === opts.health);
+  if (opts.problemOnly) filtered = filtered.filter((l) => l.health !== 'ok');
+  if (opts.dupOnly) filtered = filtered.filter((l) => l.is_duplicate);
+  if (opts.search) {
+    const s = opts.search.trim().toLowerCase();
+    filtered = filtered.filter((l) => (l.email || '').toLowerCase().includes(s) || (l.nome || '').toLowerCase().includes(s) || (l.empresa || '').toLowerCase().includes(s));
+  }
+  filtered.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  const total = filtered.length;
+  return { data: filtered.slice(0, opts.limit ?? 200), total };
+}
+
+async function fetchUnifiedStats(db: SupabaseClient): Promise<any> {
+  const since30 = new Date(Date.now() - 30 * 86400_000).toISOString();
+  const { data: leads } = await fetchUnifiedLeads(db, { from: since30, limit: 100000 });
+  const now = Date.now();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const t24 = now - 24 * 3600_000, t7 = now - 7 * 86400_000, tToday = today.getTime();
+  const ts = (l: UnifiedLead) => new Date(l.created_at).getTime();
+  const mk = (pred: (l: UnifiedLead) => boolean) => {
+    const subset = leads.filter(pred);
+    const entraram = subset.length;
+    const completos = subset.filter((l) => l.status === 'completo').length;
+    return {
+      entraram, completos, incompletos: entraram - completos,
+      problema: subset.filter((l) => l.health !== 'ok').length,
+      deals: subset.filter((l) => l.stage === 'deal_criado').length,
+      taxa_completos: entraram ? Math.round((completos / entraram) * 100) : 0,
+    };
+  };
+  const por_origem = (['framer', 'rd_pipedrive', 'webinar'] as LeadSourceKey[]).map((src) => {
+    const subset = leads.filter((l) => l.source === src);
+    return { source: src, source_label: U_SOURCE_LABELS[src], total: subset.length, completos: subset.filter((l) => l.status === 'completo').length, problema: subset.filter((l) => l.health !== 'ok').length };
+  });
+  const rd = leads.filter((l) => l.source === 'rd_pipedrive');
+  return {
+    periodos: { h24: mk((l) => ts(l) >= t24), hoje: mk((l) => ts(l) >= tToday), d7: mk((l) => ts(l) >= t7) },
+    por_origem,
+    funil_rd: {
+      capturado: rd.length,
+      processado: rd.filter((l) => l.routing?.processado === true || l.stage === 'deal_criado').length,
+      deal: rd.filter((l) => l.stage === 'deal_criado').length,
+      nao_processado: rd.filter((l) => l.stage === 'nao_processado').length,
+    },
+    duplicados: leads.filter((l) => l.is_duplicate).length,
+  };
+}
+
 function parseUnifiedFilters(query: any): UnifiedFilters {
   return {
     source: query.source || undefined,
