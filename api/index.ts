@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { fetchUnifiedLeads, fetchUnifiedStats, type UnifiedFilters } from '../src/lib/leads-unified';
 
 const app = express();
 app.use(cors());
