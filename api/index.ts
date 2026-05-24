@@ -542,6 +542,69 @@ app.get('/api/n8n/workflow-stats', async (req, res) => {
   res.json(stats);
 });
 
+// POST /api/n8n/executions/ingest — recebe execuções do n8n em tempo real (push)
+const ExecIngestSchema = z.object({
+  execution_id: z.union([z.string(), z.number()]).transform(String),
+  workflow_id: z.string(),
+  workflow_name: z.string().optional(),
+  status: z.string(),
+  started_at: z.string().optional().nullable(),
+  finished_at: z.string().optional().nullable(),
+  duration_ms: z.number().optional().nullable(),
+  node_error: z.string().optional().nullable(),
+  error_message: z.string().optional().nullable(),
+});
+
+app.post('/api/n8n/executions/ingest', webhookAuth, async (req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    const d = ExecIngestSchema.parse(req.body);
+    const wfName = d.workflow_name || WORKFLOW_NAMES[d.workflow_id] || d.workflow_id;
+    const isErr = d.status === 'error' || d.status === 'crashed';
+    const duration =
+      d.duration_ms ??
+      (d.started_at && d.finished_at ? new Date(d.finished_at).getTime() - new Date(d.started_at).getTime() : null);
+
+    // Alerta técnico para falhas (o Discord já é disparado pelo Error Handler do n8n)
+    let alertId: string | null = null;
+    if (isErr) {
+      const diagnostico = {
+        tipo: 'erro_tecnico',
+        motivo: diagnoseError(d.error_message || ''),
+        node_falhou: d.node_error || null,
+        detalhe_original: (d.error_message || '').slice(0, 200),
+      };
+      const { data: al } = await db.from('alerts').upsert({
+        tipo: 'erro_tecnico', severity: 'error', workflow_id: d.workflow_id, workflow_name: wfName,
+        execution_id: d.execution_id, node_name: d.node_error || null, error_message: d.error_message || null,
+        status: 'open', diagnostico,
+      }, { onConflict: 'workflow_id,execution_id,tipo' }).select('id').single();
+      if (al) alertId = al.id;
+    }
+
+    const row = {
+      execution_id: d.execution_id, workflow_id: d.workflow_id, workflow_name: wfName,
+      status: d.status, started_at: d.started_at || new Date().toISOString(), finished_at: d.finished_at || null,
+      duration_ms: duration, error_message: isErr ? d.error_message || null : null,
+      node_error: d.node_error || null, alert_id: alertId,
+    };
+
+    // Idempotente: atualiza se já existe a execução, senão insere
+    const { data: existing } = await db.from('n8n_executions').select('id').eq('execution_id', d.execution_id).maybeSingle();
+    if (existing) await db.from('n8n_executions').update(row).eq('id', existing.id);
+    else await db.from('n8n_executions').insert(row);
+
+    // Atualiza o resumo do workflow (no-op se o id não estiver cadastrado)
+    await db.from('n8n_workflows').update({
+      last_execution_at: d.started_at || new Date().toISOString(),
+      last_execution_status: d.status, updated_at: new Date().toISOString(),
+    }).eq('id', d.workflow_id);
+
+    res.json({ ok: true });
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
 app.post('/api/n8n/sync', async (req, res) => {
   const db = getSupabase();
   if (!db) return res.status(503).json({ error: 'Database unavailable' });
