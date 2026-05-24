@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from './src/lib/supabase.ts';
 import { sendDiscordAlert } from './src/lib/discord.ts';
 import { LeadIncompletoSchema, ErroTecnicoSchema } from './src/lib/schemas.ts';
 import { validateLeadFields, LEAD_SOURCE_LABELS, type LeadSource } from './src/lib/validation-config.ts';
+import { fetchUnifiedLeads, fetchUnifiedStats, type UnifiedFilters } from './src/lib/leads-unified.ts';
 
 const logger = pino({
   transport: {
@@ -533,6 +534,36 @@ async function startServer() {
     res.json({ data, count, page: Number(page), limit: Number(limit) });
   });
 
+  // ── Funil unificado de leads (lê as bases reais: Framer, RD→Pipedrive, Webinar) ──
+  const parseUnifiedFilters = (query: any): UnifiedFilters => ({
+    source: query.source || undefined,
+    status: query.status || undefined,
+    stage: query.stage || undefined,
+    health: query.health || undefined,
+    problemOnly: query.problem === '1' || query.problem === 'true',
+    dupOnly: query.dup === '1' || query.dup === 'true',
+    search: query.search || undefined,
+    from: query.from || undefined,
+    to: query.to || undefined,
+    limit: query.limit ? Number(query.limit) : undefined,
+  });
+
+  app.get('/api/leads/unified', async (req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    try {
+      res.json(await fetchUnifiedLeads(db, parseUnifiedFilters(req.query)));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/leads/unified-stats', async (_req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    try {
+      res.json(await fetchUnifiedStats(db));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/leads/stats — contadores agregados
   app.get('/api/leads/stats', async (req, res) => {
     const supabaseAdmin = getSupabaseAdmin();
@@ -573,6 +604,48 @@ async function startServer() {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // POST /api/n8n/executions/ingest — recebe execuções do n8n em tempo real (push)
+  app.post('/api/n8n/executions/ingest', webhookAuth, async (req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    try {
+      const { execution_id, workflow_id, workflow_name, status, started_at, finished_at, duration_ms, node_error, error_message } = req.body;
+      if (!execution_id || !workflow_id || !status) {
+        return res.status(400).json({ error: 'execution_id, workflow_id e status são obrigatórios' });
+      }
+      const execId = String(execution_id);
+      const wfName = workflow_name || WORKFLOW_NAMES[workflow_id] || workflow_id;
+      const isErr = status === 'error' || status === 'crashed';
+      const duration = duration_ms ??
+        (started_at && finished_at ? new Date(finished_at).getTime() - new Date(started_at).getTime() : null);
+
+      let alertId: string | null = null;
+      if (isErr) {
+        const { data: al } = await db.from('alerts').upsert({
+          tipo: 'erro_tecnico', severity: 'error', workflow_id, workflow_name: wfName,
+          execution_id: execId, node_name: node_error || null, error_message: error_message || null, status: 'open',
+        }, { onConflict: 'workflow_id,execution_id,tipo' }).select('id').single();
+        if (al) alertId = al.id;
+      }
+
+      const row = {
+        execution_id: execId, workflow_id, workflow_name: wfName, status,
+        started_at: started_at || new Date().toISOString(), finished_at: finished_at || null, duration_ms: duration,
+        error_message: isErr ? (error_message || null) : null, node_error: node_error || null, alert_id: alertId,
+      };
+      const { data: existing } = await db.from('n8n_executions').select('id').eq('execution_id', execId).maybeSingle();
+      if (existing) await db.from('n8n_executions').update(row).eq('id', existing.id);
+      else await db.from('n8n_executions').insert(row);
+
+      await db.from('n8n_workflows').update({
+        last_execution_at: started_at || new Date().toISOString(),
+        last_execution_status: status, updated_at: new Date().toISOString(),
+      }).eq('id', workflow_id);
+
+      res.json({ ok: true });
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
   });
 
   // POST /api/n8n/sync — disparo manual de sync
