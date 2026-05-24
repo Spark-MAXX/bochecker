@@ -742,8 +742,13 @@ app.post('/api/n8n/executions/ingest', webhookAuth, async (req, res) => {
 
     // Idempotente: atualiza se já existe a execução, senão insere
     const { data: existing } = await db.from('n8n_executions').select('id').eq('execution_id', d.execution_id).maybeSingle();
-    if (existing) await db.from('n8n_executions').update(row).eq('id', existing.id);
-    else await db.from('n8n_executions').insert(row);
+    const { error: execErr } = existing
+      ? await db.from('n8n_executions').update(row).eq('id', existing.id)
+      : await db.from('n8n_executions').insert(row);
+    if (execErr) {
+      // RLS sem policy de escrita + chave anon causa erro silencioso aqui — não esconder
+      return res.status(500).json({ error: `n8n_executions write falhou: ${execErr.message}`, hint: 'Verifique se SUPABASE_SERVICE_ROLE_KEY (Vercel) é a service_role real.' });
+    }
 
     // Atualiza o resumo do workflow (no-op se o id não estiver cadastrado)
     await db.from('n8n_workflows').update({
@@ -751,7 +756,7 @@ app.post('/api/n8n/executions/ingest', webhookAuth, async (req, res) => {
       last_execution_status: d.status, updated_at: new Date().toISOString(),
     }).eq('id', d.workflow_id);
 
-    res.json({ ok: true });
+    res.json({ ok: true, alert_id: alertId });
   } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
