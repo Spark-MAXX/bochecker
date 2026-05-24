@@ -5,7 +5,7 @@ import AlertsTable from './components/AlertsTable';
 import Charts from './components/Charts';
 import Filters from './components/Filters';
 import WorkflowsPanel from './components/WorkflowsPanel';
-import LeadsMonitor from './components/LeadsMonitor';
+import FunnelMonitor from './components/FunnelMonitor';
 import { type Alert, type LeadsStats } from './lib/schemas';
 import { Bell, RefreshCcw, Sun, Moon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -83,13 +83,13 @@ export default function App() {
     fetchData();
     const supabase = getSupabase();
     if (!supabase) return;
+    const bumpLeads = () => { fetchData(); setLeadsRefreshKey(k => k + 1); };
     const subscription = supabase.channel('alerts_channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'n8n_executions' }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
-        fetchData();
-        setLeadsRefreshKey(k => k + 1);
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads_framer' }, bumpLeads)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads_rd_pipedrive' }, bumpLeads)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads_webinar' }, bumpLeads)
       .subscribe();
     return () => { supabase.removeChannel(subscription); };
   }, [fetchData]);
@@ -184,7 +184,7 @@ export default function App() {
 
               <WorkflowsPanel workflows={workflowStats.length ? workflowStats : stats.workflows} onSyncNow={handleSyncNow} syncing={syncing} />
 
-              <LeadsMonitor refreshKey={leadsRefreshKey} />
+              <FunnelMonitor refreshKey={leadsRefreshKey} />
             </div>
 
             {/* Sidebar */}

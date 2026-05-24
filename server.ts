@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from './src/lib/supabase.ts';
 import { sendDiscordAlert } from './src/lib/discord.ts';
 import { LeadIncompletoSchema, ErroTecnicoSchema } from './src/lib/schemas.ts';
 import { validateLeadFields, LEAD_SOURCE_LABELS, type LeadSource } from './src/lib/validation-config.ts';
+import { fetchUnifiedLeads, fetchUnifiedStats, type UnifiedFilters } from './src/lib/leads-unified.ts';
 
 const logger = pino({
   transport: {
@@ -531,6 +532,36 @@ async function startServer() {
 
     if (error) return res.status(500).json({ error: error.message });
     res.json({ data, count, page: Number(page), limit: Number(limit) });
+  });
+
+  // ── Funil unificado de leads (lê as bases reais: Framer, RD→Pipedrive, Webinar) ──
+  const parseUnifiedFilters = (query: any): UnifiedFilters => ({
+    source: query.source || undefined,
+    status: query.status || undefined,
+    stage: query.stage || undefined,
+    health: query.health || undefined,
+    problemOnly: query.problem === '1' || query.problem === 'true',
+    dupOnly: query.dup === '1' || query.dup === 'true',
+    search: query.search || undefined,
+    from: query.from || undefined,
+    to: query.to || undefined,
+    limit: query.limit ? Number(query.limit) : undefined,
+  });
+
+  app.get('/api/leads/unified', async (req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    try {
+      res.json(await fetchUnifiedLeads(db, parseUnifiedFilters(req.query)));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/leads/unified-stats', async (_req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    try {
+      res.json(await fetchUnifiedStats(db));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // GET /api/leads/stats — contadores agregados

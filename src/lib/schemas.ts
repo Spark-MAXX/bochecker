@@ -78,6 +78,64 @@ export interface Lead {
   created_at: string;
 }
 
+// ── Funil unificado (bases reais do Supabase) ────────────────────────────────
+export type LeadSourceKey = 'framer' | 'rd_pipedrive' | 'webinar';
+export type FunnelStage =
+  | 'incompleto' | 'capturado' | 'inscrito'
+  | 'nao_processado' | 'processado_sem_deal' | 'deal_criado';
+export type Health = 'ok' | 'atencao' | 'erro';
+
+export interface UnifiedLead {
+  uid: string;
+  source: LeadSourceKey;
+  source_label: string;
+  source_id: number | string;
+  nome: string | null;
+  email: string | null;
+  telefone: string | null;
+  empresa: string | null;
+  produto: string | null;
+  created_at: string;
+  is_indicacao: boolean;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  status: 'completo' | 'incompleto';
+  missing: string[];
+  stage: FunnelStage;
+  stage_label: string;
+  health: Health;
+  routing: {
+    rota_definida: string | null;
+    rota_encontrada: boolean | null;
+    destino_pipeline: string | null;
+    destino_stage: string | null;
+    destino_owner: string | null;
+    processado: boolean | null;
+    motivo_rota: string | null;
+  } | null;
+  pipedrive: { person_id: number | null; deal_id: number | null } | null;
+  is_duplicate: boolean;
+  also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[];
+  raw: Record<string, any>;
+}
+
+interface PeriodStats {
+  entraram: number;
+  completos: number;
+  incompletos: number;
+  problema: number;
+  deals: number;
+  taxa_completos: number;
+}
+
+export interface FunnelStats {
+  periodos: Record<'h24' | 'hoje' | 'd7', PeriodStats>;
+  por_origem: { source: LeadSourceKey; source_label: string; total: number; completos: number; problema: number }[];
+  funil_rd: { capturado: number; processado: number; deal: number; nao_processado: number };
+  duplicados: number;
+}
+
 export interface LeadsStats {
   completos_24h: number;
   incompletos_24h: number;

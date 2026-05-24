@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { fetchUnifiedLeads, fetchUnifiedStats, type UnifiedFilters } from '../src/lib/leads-unified';
 
 const app = express();
 app.use(cors());
@@ -328,6 +329,39 @@ app.get('/api/leads/stats', async (req, res) => {
       completion_rate_today: totalToday > 0 ? Math.round((cT.count || 0) / totalToday * 100) : 0,
       completion_rate_7d:   total7d   > 0 ? Math.round((c7.count  || 0) / total7d   * 100) : 0,
     });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Funil unificado de leads (lê as bases reais: Framer, RD→Pipedrive, Webinar) ──
+function parseUnifiedFilters(query: any): UnifiedFilters {
+  return {
+    source: query.source || undefined,
+    status: query.status || undefined,
+    stage: query.stage || undefined,
+    health: query.health || undefined,
+    problemOnly: query.problem === '1' || query.problem === 'true',
+    dupOnly: query.dup === '1' || query.dup === 'true',
+    search: query.search || undefined,
+    from: query.from || undefined,
+    to: query.to || undefined,
+    limit: query.limit ? Number(query.limit) : undefined,
+  };
+}
+
+app.get('/api/leads/unified', async (req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    const result = await fetchUnifiedLeads(db, parseUnifiedFilters(req.query));
+    res.json(result);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/leads/unified-stats', async (_req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    res.json(await fetchUnifiedStats(db));
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
