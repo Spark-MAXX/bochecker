@@ -40,6 +40,7 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
   const [dsearch, setDsearch] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [activePreset, setActivePreset] = useState<string>('30d');
 
   const [adminSecret, setAdminSecret] = useState<string>(() => localStorage.getItem('spark-admin-secret') || '');
   const [dupOpen, setDupOpen] = useState(false);
@@ -130,12 +131,14 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
   };
 
   const applyPreset = (p: string) => {
+    setActivePreset(p);
     const fmt = (d: Date) => d.toISOString().slice(0, 10);
     if (p === 'tudo') { setFromDate('2020-01-01'); setToDate(''); return; }
     const now = new Date(); const f = new Date();
     if (p === 'hoje') f.setHours(0, 0, 0, 0); else f.setTime(Date.now() - (p === '7d' ? 7 : 30) * 86400000);
     setFromDate(fmt(f)); setToDate(fmt(now));
   };
+  const onDate = (which: 'from' | 'to', v: string) => { setActivePreset('custom'); which === 'from' ? setFromDate(v) : setToDate(v); };
 
   const exportCsv = () => {
     const head = ['nome', 'email', 'telefone', 'empresa', 'estagio', 'saude', 'parou_em', 'framer', 'rd', 'processado', 'deal_id', 'status_pipe', 'recebido'];
@@ -150,17 +153,33 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
 
   return (
     <div className="space-y-4">
+      {/* Filtro de data único — controla o funil E a lista */}
+      <div className="flex flex-wrap items-center gap-2 px-1">
+        <span className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.12em', color: 'var(--ink-mute)' }}>Período (funil + leads):</span>
+        {PERIODS.map((p) => {
+          const active = activePreset === p.k;
+          return (
+            <button key={p.k} onClick={() => applyPreset(p.k)} className="font-mono uppercase"
+              style={{ fontSize: 10, padding: '4px 10px', borderRadius: 999, border: `1px solid ${active ? 'var(--crimson)' : 'var(--border)'}`, background: active ? 'var(--crimson-soft)' : 'transparent', color: active ? 'var(--crimson)' : 'var(--text-3)' }}>
+              {p.k}
+            </button>
+          );
+        })}
+        <input type="date" value={fromDate} onChange={(e) => onDate('from', e.target.value)} aria-label="De"
+          className="text-[10px] font-mono rounded border px-2 py-1" style={{ backgroundColor: 'var(--bg-input)', borderColor: activePreset === 'custom' ? 'var(--crimson)' : 'var(--border)', color: 'var(--text-2)' }} />
+        <span style={{ color: 'var(--text-4)' }}>→</span>
+        <input type="date" value={toDate} onChange={(e) => onDate('to', e.target.value)} aria-label="Até"
+          className="text-[10px] font-mono rounded border px-2 py-1" style={{ backgroundColor: 'var(--bg-input)', borderColor: activePreset === 'custom' ? 'var(--crimson)' : 'var(--border)', color: 'var(--text-2)' }} />
+        {(fromDate || toDate) && <button onClick={() => { setFromDate(''); setToDate(''); setActivePreset('30d'); }} className="font-mono uppercase" style={{ fontSize: 10, color: 'var(--crimson)' }}>limpar</button>}
+      </div>
+
       {/* Funil de conversão */}
       <div style={card}>
         <div className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: 'var(--rule)', backgroundColor: 'var(--bg-soft)' }}>
           <h3 className="font-display flex items-center gap-2" style={{ fontSize: 16, fontWeight: 500, color: 'var(--ink)' }}>
             <GitBranch className="h-4 w-4" /> Funil de conversão · ponta a ponta
           </h3>
-          <div className="flex items-center gap-1">
-            {PERIODS.map((p) => (
-              <button key={p.k} onClick={() => applyPreset(p.k)} className="font-mono uppercase" style={{ fontSize: 10, padding: '3px 8px', borderRadius: 999, border: '1px solid var(--border)', color: 'var(--text-3)', background: 'transparent' }}>{p.k}</button>
-            ))}
-          </div>
+          <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)' }}>por execução do n8n</span>
         </div>
         {flow && (
           <div className="p-4 space-y-1.5">
@@ -231,16 +250,6 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
             <button onClick={exportCsv} className="text-[10px] font-mono uppercase px-2 py-1 flex items-center gap-1" style={{ color: 'var(--text-3)' }}><Download className="h-3 w-3" /> CSV</button>
             <button onClick={fetchData} disabled={loading} className="text-[10px] font-mono uppercase px-2 py-1 flex items-center gap-1" style={{ color: 'var(--text-3)' }}><RefreshCcw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} /> Sync</button>
           </div>
-        </div>
-
-        {/* Filtros de data */}
-        <div className="px-4 py-2 border-b flex flex-wrap items-center gap-2" style={{ borderColor: 'var(--border-light)' }}>
-          <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)' }}>Período:</span>
-          {PERIODS.map((p) => <button key={p.k} onClick={() => applyPreset(p.k)} className="font-mono uppercase" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)', color: 'var(--text-3)' }}>{p.k}</button>)}
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="text-[10px] font-mono rounded border px-2 py-0.5" style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)' }} />
-          <span style={{ color: 'var(--text-4)' }}>→</span>
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="text-[10px] font-mono rounded border px-2 py-0.5" style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)' }} />
-          {(fromDate || toDate || stageFilter || healthFilter) && <button onClick={() => { setFromDate(''); setToDate(''); setStageFilter(''); setHealthFilter(''); }} className="font-mono uppercase" style={{ fontSize: 10, color: 'var(--crimson)' }}>limpar</button>}
         </div>
 
         {dupOpen && (
