@@ -18,7 +18,7 @@ const STAGE_COLOR: Record<JourneyStage, string> = {
 const STEPS = [
   { key: 'form', label: 'Framer' },
   { key: 'rd', label: 'RD' },
-  { key: 'processado', label: 'Proc.' },
+  { key: 'processado', label: 'MQL' },
   { key: 'deal', label: 'Deal' },
 ] as const;
 const PERIODS = [{ k: 'hoje' }, { k: '7d' }, { k: '30d' }, { k: 'tudo' }] as const;
@@ -163,10 +163,10 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
         {stats && (
           <div className="p-4 space-y-1.5">
             {[
-              { label: 'Form Framer', val: stats.framer, color: '#D49555', sub: 'preencheram o formulário' },
-              { label: 'Chegaram ao RD', val: stats.framer_to_rd, color: '#7CA5DA', sub: `${stats.taxa_framer_rd}% do Framer · +${stats.rd_direct} diretos no RD` },
-              { label: 'Processado (RD→Pipe)', val: stats.processado, color: '#BD8AA8', sub: `${stats.taxa_rd_proc}% do RD` },
-              { label: 'Deal criado', val: stats.deal, color: '#A8B782', sub: `${stats.taxa_proc_deal}% dos processados` },
+              { label: 'Webhook Framer', val: stats.framer, color: '#D49555', sub: 'webhook disparou com dados' },
+              { label: 'Chegou ao RD', val: stats.framer_to_rd, color: '#7CA5DA', sub: `${stats.taxa_framer_rd}% do Framer · +${stats.rd_direct} diretos no RD` },
+              { label: 'MQL (Fluxo Pipedrive)', val: stats.processado, color: '#BD8AA8', sub: `${stats.taxa_rd_proc}% do RD` },
+              { label: 'Deal criado', val: stats.deal, color: '#A8B782', sub: `${stats.taxa_proc_deal}% dos MQL` },
             ].map((s) => {
               const max = Math.max(stats.framer, 1);
               return (
@@ -186,8 +186,8 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
               <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)', alignSelf: 'center' }}>Vazamentos:</span>
               {[
                 { label: 'Framer sem chegar ao RD', val: stats.leak_framer_sem_rd, stage: 'form' as JourneyStage },
-                { label: 'No RD sem processar', val: stats.leak_rd_sem_proc, stage: 'rd' as JourneyStage },
-                { label: 'Processado sem deal', val: stats.leak_proc_sem_deal, stage: 'processado' as JourneyStage },
+                { label: 'No RD sem virar MQL', val: stats.leak_rd_sem_proc, stage: 'rd' as JourneyStage },
+                { label: 'MQL sem deal', val: stats.leak_proc_sem_deal, stage: 'processado' as JourneyStage },
               ].map((l) => (
                 <button key={l.label} onClick={() => setStageFilter(stageFilter === l.stage ? '' : l.stage)}
                   className="font-mono" style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, border: `1px solid ${stageFilter === l.stage ? 'var(--crimson)' : 'var(--border)'}`, background: stageFilter === l.stage ? 'var(--crimson-soft)' : 'var(--bg-soft)', color: l.val > 0 ? 'var(--crimson)' : 'var(--text-3)' }}>
@@ -219,9 +219,9 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
             </div>
             <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value as any)} className="border rounded px-2 py-1 text-[10px] font-bold uppercase outline-none cursor-pointer" style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)' }}>
               <option value="">Estágio: todos</option>
-              <option value="form">Form Framer (parou)</option>
-              <option value="rd">No RD (travou)</option>
-              <option value="processado">Processado s/ deal</option>
+              <option value="form">Webhook Framer (parou)</option>
+              <option value="rd">Chegou ao RD (travou)</option>
+              <option value="processado">MQL s/ deal</option>
               <option value="deal">Deal criado</option>
               <option value="ganho">Ganho</option>
               <option value="perdido">Perdido</option>
@@ -377,11 +377,11 @@ function Steps({ j }: { j: JourneyLead }) {
 
 function Timeline({ j }: { j: JourneyLead }) {
   const events: { when: string | null; label: string; on: boolean }[] = [
-    { when: j.has_framer ? j.created_at : null, label: 'Preencheu o formulário (Framer)', on: j.reached.form },
-    { when: j.has_rd ? j.last_at : null, label: 'Chegou ao RD', on: j.reached.rd },
-    { when: null, label: 'Processado pelo fluxo RD → Pipedrive', on: j.reached.processado },
-    { when: null, label: j.deal_id ? `Deal criado no Pipedrive (#${j.deal_id})` : 'Deal criado no Pipedrive', on: j.reached.deal },
-    { when: j.pipe?.won_at || j.pipe?.lost_at || null, label: j.pipe?.status ? `Status do deal: ${j.pipe.status}` : 'Status no Pipedrive', on: !!j.pipe?.status },
+    { when: j.has_framer ? j.created_at : null, label: 'Webhook Framer disparou com os dados', on: j.reached.form },
+    { when: j.has_rd ? j.last_at : null, label: 'Chegou ao RD (execução concluída sem erro)', on: j.reached.rd },
+    { when: null, label: 'MQL (Fluxo Pipedrive)', on: j.reached.processado },
+    { when: null, label: j.deal_id ? `Deal criado — fluxo RD → Pipedrive concluído (#${j.deal_id})` : 'Deal criado (fluxo RD → Pipedrive concluído)', on: j.reached.deal },
+    { when: j.pipe?.won_at || j.pipe?.lost_at || null, label: j.pipe?.status ? `Status no Pipedrive: ${j.pipe.status}` : 'Status no Pipedrive (em breve)', on: !!j.pipe?.status },
   ];
   return (
     <div className="space-y-1.5">
