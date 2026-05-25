@@ -21,7 +21,6 @@ const STEPS = [
   { key: 'processado', label: 'MQL' },
   { key: 'deal', label: 'Deal' },
 ] as const;
-const PERIODS = [{ k: 'hoje' }, { k: '7d' }, { k: '30d' }, { k: 'tudo' }] as const;
 const n8nBase = 'https://growthsparkmaxx.app.n8n.cloud';
 
 export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number }) {
@@ -38,9 +37,8 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
   const [dupOnly, setDupOnly] = useState(false);
   const [search, setSearch] = useState('');
   const [dsearch, setDsearch] = useState('');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
-  const [activePreset, setActivePreset] = useState<string>('30d');
+  const [fromDate, setFromDate] = useState(() => new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
+  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   const [adminSecret, setAdminSecret] = useState<string>(() => localStorage.getItem('spark-admin-secret') || '');
   const [dupOpen, setDupOpen] = useState(false);
@@ -130,16 +128,6 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
     const { ok } = await postAdmin('/api/funnel/dedupe', {}); if (ok) { loadDuplicates(); fetchData(); }
   };
 
-  const applyPreset = (p: string) => {
-    setActivePreset(p);
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
-    if (p === 'tudo') { setFromDate('2020-01-01'); setToDate(''); return; }
-    const now = new Date(); const f = new Date();
-    if (p === 'hoje') f.setHours(0, 0, 0, 0); else f.setTime(Date.now() - (p === '7d' ? 7 : 30) * 86400000);
-    setFromDate(fmt(f)); setToDate(fmt(now));
-  };
-  const onDate = (which: 'from' | 'to', v: string) => { setActivePreset('custom'); which === 'from' ? setFromDate(v) : setToDate(v); };
-
   const exportCsv = () => {
     const head = ['nome', 'email', 'telefone', 'empresa', 'estagio', 'saude', 'parou_em', 'framer', 'rd', 'processado', 'deal_id', 'status_pipe', 'recebido'];
     const esc = (v: any) => `"${(v ?? '').toString().replace(/"/g, '""')}"`;
@@ -153,24 +141,15 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
 
   return (
     <div className="space-y-4">
-      {/* Filtro de data único — controla o funil E a lista */}
+      {/* Seleção de data — controla o funil E a lista */}
       <div className="flex flex-wrap items-center gap-2 px-1">
         <span className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.12em', color: 'var(--ink-mute)' }}>Período (funil + leads):</span>
-        {PERIODS.map((p) => {
-          const active = activePreset === p.k;
-          return (
-            <button key={p.k} onClick={() => applyPreset(p.k)} className="font-mono uppercase"
-              style={{ fontSize: 10, padding: '4px 10px', borderRadius: 999, border: `1px solid ${active ? 'var(--crimson)' : 'var(--border)'}`, background: active ? 'var(--crimson-soft)' : 'transparent', color: active ? 'var(--crimson)' : 'var(--text-3)' }}>
-              {p.k}
-            </button>
-          );
-        })}
-        <input type="date" value={fromDate} onChange={(e) => onDate('from', e.target.value)} aria-label="De"
-          className="text-[10px] font-mono rounded border px-2 py-1" style={{ backgroundColor: 'var(--bg-input)', borderColor: activePreset === 'custom' ? 'var(--crimson)' : 'var(--border)', color: 'var(--text-2)' }} />
-        <span style={{ color: 'var(--text-4)' }}>→</span>
-        <input type="date" value={toDate} onChange={(e) => onDate('to', e.target.value)} aria-label="Até"
-          className="text-[10px] font-mono rounded border px-2 py-1" style={{ backgroundColor: 'var(--bg-input)', borderColor: activePreset === 'custom' ? 'var(--crimson)' : 'var(--border)', color: 'var(--text-2)' }} />
-        {(fromDate || toDate) && <button onClick={() => { setFromDate(''); setToDate(''); setActivePreset('30d'); }} className="font-mono uppercase" style={{ fontSize: 10, color: 'var(--crimson)' }}>limpar</button>}
+        <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)' }}>De</span>
+        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} aria-label="De"
+          className="text-[10px] font-mono rounded border px-2 py-1" style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)' }} />
+        <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)' }}>Até</span>
+        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} aria-label="Até"
+          className="text-[10px] font-mono rounded border px-2 py-1" style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)' }} />
       </div>
 
       {/* Funil de conversão */}

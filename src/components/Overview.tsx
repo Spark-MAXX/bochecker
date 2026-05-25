@@ -16,20 +16,6 @@ const TONE: Record<Tone, string> = {
   olive: 'var(--olive)', navy: 'var(--navy)', plum: 'var(--plum)',
 };
 
-const PERIODS = [
-  { k: 'hoje', label: 'Hoje' },
-  { k: '7d', label: '7 dias' },
-  { k: '30d', label: '30 dias' },
-  { k: 'tudo', label: 'Tudo' },
-] as const;
-
-function periodRange(p: string): { from: string; to: string } {
-  if (p === 'tudo') return { from: '2020-01-01T00:00:00.000Z', to: '' };
-  const now = new Date(); const f = new Date();
-  if (p === 'hoje') f.setHours(0, 0, 0, 0); else f.setTime(Date.now() - (p === '7d' ? 7 : 30) * 86400000);
-  return { from: f.toISOString(), to: now.toISOString() };
-}
-
 interface FlowStats {
   framer_total: number; framer_ok: number; pass_total: number; pass_ok: number;
   framer_falhou: number; pass_falhou: number; taxa_framer_ok: number; taxa_rd_mql: number; taxa_mql_deal: number;
@@ -73,20 +59,22 @@ function MiniCell({ label, value, tone = 'ink', right, bottom }: { label: string
 }
 
 export default function Overview({ dashboard, leadsStats, refreshKey, onNavigate }: OverviewProps) {
-  const [period, setPeriod] = useState('30d');
+  const [fromDate, setFromDate] = useState(() => new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
+  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [flow, setFlow] = useState<FlowStats | null>(null);
   const [jstats, setJstats] = useState<JourneyStats | null>(null);
 
   useEffect(() => {
     let alive = true;
-    const { from, to } = periodRange(period);
-    const sp = new URLSearchParams(); if (from) sp.append('from', from); if (to) sp.append('to', to);
+    const sp = new URLSearchParams();
+    if (fromDate) sp.append('from', new Date(fromDate + 'T00:00:00').toISOString());
+    if (toDate) sp.append('to', new Date(toDate + 'T23:59:59').toISOString());
     Promise.all([
       fetch(`/api/journey/flow-stats?${sp}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch(`/api/journey/stats?${sp}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ]).then(([f, j]) => { if (alive) { setFlow(f); setJstats(j); } });
     return () => { alive = false; };
-  }, [period, refreshKey]);
+  }, [fromDate, toDate, refreshKey]);
 
   const fmax = Math.max(flow?.framer_total ?? 1, 1);
   const steps = flow ? [
@@ -110,16 +98,13 @@ export default function Overview({ dashboard, leadsStats, refreshKey, onNavigate
               O funil de leads, da captura ao <span className="font-display-em">fechamento</span>.
             </h1>
           </div>
-          <div className="flex items-center gap-1">
-            {PERIODS.map((p) => {
-              const active = period === p.k;
-              return (
-                <button key={p.k} onClick={() => setPeriod(p.k)} className="font-mono uppercase"
-                  style={{ fontSize: 10, padding: '5px 12px', borderRadius: 999, border: `1px solid ${active ? 'var(--crimson)' : 'var(--border)'}`, background: active ? 'var(--crimson-soft)' : 'transparent', color: active ? 'var(--crimson)' : 'var(--text-3)' }}>
-                  {p.label}
-                </button>
-              );
-            })}
+          <div className="flex items-center gap-2">
+            <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)' }}>De</span>
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} aria-label="De"
+              className="text-[10px] font-mono rounded border px-2 py-1" style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)' }} />
+            <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)' }}>Até</span>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} aria-label="Até"
+              className="text-[10px] font-mono rounded border px-2 py-1" style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)' }} />
           </div>
         </div>
       </div>
