@@ -5,7 +5,7 @@ import Overview from './components/Overview';
 import AlertsTable from './components/AlertsTable';
 import Filters from './components/Filters';
 import WorkflowsPanel from './components/WorkflowsPanel';
-import FunnelMonitor from './components/FunnelMonitor';
+import JourneyMonitor from './components/JourneyMonitor';
 import LeadsMonitor from './components/LeadsMonitor';
 import { type Alert, type LeadsStats } from './lib/schemas';
 
@@ -133,7 +133,7 @@ export default function App() {
             <Overview dashboard={stats} leadsStats={leadsStats} refreshKey={refreshKey} onNavigate={setPage} />
           )}
 
-          {page === 'funil' && <FunnelMonitor refreshKey={refreshKey} />}
+          {page === 'funil' && <JourneyMonitor refreshKey={refreshKey} />}
 
           {page === 'leads' && <LeadsMonitor refreshKey={refreshKey} />}
 
