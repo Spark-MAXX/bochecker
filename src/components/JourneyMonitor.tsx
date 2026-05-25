@@ -280,7 +280,7 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 z-10" style={{ backgroundColor: 'var(--bg-soft)' }}>
                 <tr className="font-mono uppercase" style={{ fontSize: 10, color: 'var(--text-3)', borderBottom: '1px solid var(--rule)' }}>
-                  <th className="p-3 w-4" /><th className="p-3">Saúde</th><th className="p-3">Lead</th><th className="p-3">Jornada</th><th className="p-3">Parou em</th><th className="p-3">Recebido</th>
+                  <th className="p-3 w-4" /><th className="p-3">Etapa atual</th><th className="p-3">Lead</th><th className="p-3">Jornada</th><th className="p-3">Recebido</th>
                 </tr>
               </thead>
               <tbody>
@@ -291,7 +291,10 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
                       <tr className="cursor-pointer" style={{ borderLeft: `2px solid ${hm.color}`, borderBottom: '1px solid var(--border-light)' }} onClick={() => setExpanded(isExp ? null : j.uid)}>
                         <td className="pl-3">{isExp ? <ChevronDown className="h-3.5 w-3.5" style={{ color: 'var(--text-3)' }} /> : <ChevronRight className="h-3.5 w-3.5" style={{ color: 'var(--text-4)' }} />}</td>
                         <td className="p-3 whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', backgroundColor: `${hm.color}22`, color: hm.color, border: `1px solid ${hm.color}66` }}>{hm.icon}{hm.label}</span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span style={{ width: 7, height: 7, borderRadius: 999, background: hm.color }} title={hm.label} />
+                            <span className="inline-flex items-center px-2 py-0.5 rounded font-mono" style={{ fontSize: 10, fontWeight: 600, border: `1px solid ${STAGE_COLOR[j.stage]}66`, color: STAGE_COLOR[j.stage], backgroundColor: `${STAGE_COLOR[j.stage]}18` }}>{j.stage_label}</span>
+                          </span>
                           {(j.dup_bases.framer || j.dup_bases.rd_pipedrive || j.dup_bases.webinar) ? <span className="ml-1 px-1 py-0.5 rounded" style={{ fontSize: 8, fontWeight: 700, backgroundColor: 'rgba(212,149,85,0.15)', color: '#D49555' }} title="Tem duplicados na mesma base">DUP</span> : null}
                         </td>
                         <td className="p-3">
@@ -300,12 +303,11 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
                           {j.empresa && <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{j.empresa}</div>}
                         </td>
                         <td className="p-3"><Steps j={j} /></td>
-                        <td className="p-3"><span className="inline-flex items-center px-2 py-0.5 rounded font-mono" style={{ fontSize: 10, fontWeight: 600, border: `1px solid ${STAGE_COLOR[j.stage]}66`, color: STAGE_COLOR[j.stage], backgroundColor: `${STAGE_COLOR[j.stage]}18` }}>{j.stage_label}</span></td>
                         <td className="p-3 font-mono whitespace-nowrap" style={{ fontSize: 10, color: 'var(--text-2)' }}>{j.last_at ? format(new Date(j.last_at), 'dd/MM HH:mm') : '—'}<br /><span style={{ color: 'var(--text-3)' }}>{j.last_at ? formatDistanceToNow(new Date(j.last_at), { addSuffix: true, locale: ptBR }) : ''}</span></td>
                       </tr>
                       {isExp && (
                         <tr style={{ backgroundColor: 'var(--bg-soft)' }}>
-                          <td colSpan={6} className="px-6 py-4" style={{ borderLeft: `2px solid ${hm.color}` }}>
+                          <td colSpan={5} className="px-6 py-4" style={{ borderLeft: `2px solid ${hm.color}` }}>
                             <div className="space-y-3">
                               <Timeline j={j} />
                               {j.stalled && <div className="font-mono" style={{ fontSize: 11, color: 'var(--crimson)' }}>⚠ {j.stalled}</div>}
