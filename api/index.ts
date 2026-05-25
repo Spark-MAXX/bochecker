@@ -1102,4 +1102,33 @@ app.post('/api/n8n/sync', async (req, res) => {
   res.json({ ok: true, synced, timestamp: new Date().toISOString() });
 });
 
+// GET /api/journey/flow-stats — funil POR EXECUÇÃO dos fluxos n8n
+// Webhook Framer = execuções do fluxo Framer · Chegou no RD = Framer com sucesso
+// MQL = execuções da Passagem (iniciou) · Deal = Passagem com sucesso
+const WF_FRAMER = (process.env.N8N_WORKFLOW_FRAMER || 'J2rdIrv7C7gILmpk').replace(/^=/, '');
+const WF_PASSAGEM = (process.env.N8N_WORKFLOW_PASSAGEM || 'VVdWQERBqJsPxeDo').replace(/^=/, '');
+app.get('/api/journey/flow-stats', async (req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  const { from, to } = req.query as any;
+  let q = db.from('n8n_executions').select('workflow_id,status,started_at');
+  if (from) q = q.gte('started_at', from);
+  if (to) q = q.lte('started_at', to);
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  const norm = (w: any) => (w || '').toString().replace(/^=/, '');
+  let framer_total = 0, framer_ok = 0, pass_total = 0, pass_ok = 0;
+  for (const e of (data as any[]) || []) {
+    const w = norm(e.workflow_id); const ok = e.status === 'success';
+    if (w === WF_FRAMER) { framer_total++; if (ok) framer_ok++; }
+    else if (w === WF_PASSAGEM) { pass_total++; if (ok) pass_ok++; }
+  }
+  const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0);
+  res.json({
+    framer_total, framer_ok, pass_total, pass_ok,
+    framer_falhou: framer_total - framer_ok, pass_falhou: pass_total - pass_ok,
+    taxa_framer_ok: pct(framer_ok, framer_total), taxa_rd_mql: pct(pass_total, framer_ok), taxa_mql_deal: pct(pass_ok, pass_total),
+  });
+});
+
 export default app;
