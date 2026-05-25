@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, GitBranch, Users, Activity, Trophy, XOctagon } from 'lucide-react';
 import type { FunnelStats, LeadsStats } from '../lib/schemas';
 import type { Page } from './Sidebar';
 
@@ -10,42 +9,54 @@ interface OverviewProps {
   onNavigate: (p: Page) => void;
 }
 
-type Tone = 'info' | 'success' | 'warning' | 'danger' | 'neutral' | 'won';
+type Tone = 'ink' | 'crimson' | 'amber' | 'olive' | 'navy' | 'plum';
 const TONE: Record<Tone, string> = {
-  info: '#22d3ee', success: '#10b981', warning: '#f59e0b',
-  danger: '#ef4444', neutral: 'var(--text-1)', won: '#16a34a',
+  ink: 'var(--ink)', crimson: 'var(--crimson)', amber: 'var(--amber)',
+  olive: 'var(--olive)', navy: 'var(--navy)', plum: 'var(--plum)',
 };
-
-function Kpi({ label, value, tone = 'neutral', sub }: { label: string; value: React.ReactNode; tone?: Tone; sub?: string }) {
-  return (
-    <div className="px-3 py-2.5" style={{ backgroundColor: 'var(--bg-card)' }}>
-      <div className="text-[9px] font-mono uppercase tracking-[0.12em] mb-1 truncate" style={{ color: 'var(--text-4)' }}>{label}</div>
-      <div className="text-2xl font-bold font-mono leading-none" style={{ color: TONE[tone] }}>{value}</div>
-      {sub && <div className="text-[9px] font-mono mt-1" style={{ color: 'var(--text-3)' }}>{sub}</div>}
-    </div>
-  );
-}
-
-function Section({ title, icon: Icon, action, children }: { title: string; icon: React.ComponentType<{ className?: string }>; action?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border overflow-hidden" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-      <div className="flex items-center justify-between px-3 py-2 border-b" style={{ backgroundColor: 'var(--bg-muted)', borderColor: 'var(--border)' }}>
-        <div className="flex items-center gap-2">
-          <Icon className="h-3.5 w-3.5 text-cyan-400" />
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-2)' }}>{title}</h3>
-        </div>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
-}
 
 const PERIODS = [
   { key: 'h24', label: '24h' },
   { key: 'hoje', label: 'Hoje' },
   { key: 'd7', label: '7 dias' },
 ] as const;
+
+// ── Subcomponentes editoriais ────────────────────────────────────────────────
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.15em', color: 'var(--ink-mute)' }}>
+      {children}
+    </div>
+  );
+}
+
+function Kpi({ label, value, suffix, tone = 'ink', foot }: { label: string; value: React.ReactNode; suffix?: string; tone?: Tone; foot?: React.ReactNode }) {
+  return (
+    <div style={{ padding: '4px 24px', borderRight: '1px solid var(--rule)' }} className="kpi-cell">
+      <div className="font-mono uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', color: 'var(--ink-mute)', marginBottom: 12 }}>{label}</div>
+      <div className="font-display" style={{ fontSize: 46, lineHeight: 1, color: TONE[tone], fontWeight: 400 }}>
+        {value}{suffix && <span style={{ fontSize: 24 }}>{suffix}</span>}
+      </div>
+      {foot && <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginTop: 10 }}>{foot}</div>}
+    </div>
+  );
+}
+
+function Delta({ children }: { children: React.ReactNode }) {
+  return <span className="font-mono" style={{ fontSize: 11, padding: '2px 6px', background: 'var(--bg-soft)', color: 'var(--ink)' }}>{children}</span>;
+}
+
+function Panel({ title, eyebrow, action, children }: { title: string; eyebrow?: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--rule)' }}>
+      <div className="flex items-baseline justify-between" style={{ padding: '16px 20px', borderBottom: '1px solid var(--rule)' }}>
+        <h3 className="font-display" style={{ fontSize: 19, fontWeight: 500, color: 'var(--ink)' }}>{title}</h3>
+        {action || (eyebrow && <Eyebrow>{eyebrow}</Eyebrow>)}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 export default function Overview({ dashboard, leadsStats, refreshKey, onNavigate }: OverviewProps) {
   const [funnel, setFunnel] = useState<FunnelStats | null>(null);
@@ -64,110 +75,143 @@ export default function Overview({ dashboard, leadsStats, refreshKey, onNavigate
   const f = funnel?.funil_rd;
   const fmax = Math.max(f?.capturado ?? 1, 1);
   const steps = f ? [
-    { label: 'Capturado', value: f.capturado, color: '#06b6d4' },
-    { label: 'Processado', value: f.processado, color: '#f59e0b' },
-    { label: 'Deal criado', value: f.deal, color: '#10b981' },
-    { label: 'Ganho', value: f.ganho, color: '#16a34a' },
-    { label: 'Perdido', value: f.perdido, color: '#6b7280' },
+    { label: 'Capturado', value: f.capturado, color: 'var(--navy)' },
+    { label: 'Processado', value: f.processado, color: 'var(--amber)' },
+    { label: 'Deal criado', value: f.deal, color: 'var(--plum)' },
+    { label: 'Ganho', value: f.ganho, color: 'var(--olive)' },
+    { label: 'Perdido', value: f.perdido, color: 'var(--crimson)' },
   ] : [];
 
   return (
-    <div className="space-y-4">
-      {/* Topo: período + funil ponta a ponta */}
-      <Section
-        title="Funil ponta a ponta — RD → Pipedrive"
-        icon={GitBranch}
-        action={
+    <div className="space-y-8">
+      {/* Hero / eyebrow */}
+      <div style={{ paddingTop: 8 }}>
+        <div className="flex items-center gap-2" style={{ marginBottom: 14 }}>
+          <span style={{ width: 6, height: 6, background: 'var(--crimson)', display: 'inline-block' }} />
+          <Eyebrow>Pipeline ao vivo · Framer → RD → Pipedrive</Eyebrow>
+        </div>
+        <h1 className="font-display" style={{ fontSize: 'clamp(34px, 4vw, 52px)', lineHeight: 1.04, fontWeight: 400, color: 'var(--ink)', maxWidth: 820 }}>
+          O funil de leads, da captura ao <span className="font-display-em">fechamento</span>.
+        </h1>
+      </div>
+
+      {/* KPI row — período */}
+      <div>
+        <div className="flex items-center justify-between" style={{ marginBottom: 16, paddingBottom: 10, borderBottom: '1px solid var(--rule)' }}>
+          <Eyebrow>01 · Janela</Eyebrow>
           <div className="flex items-center gap-1">
             {PERIODS.map((pp) => (
               <button key={pp.key} onClick={() => setPeriod(pp.key)}
-                className="text-[10px] font-bold uppercase px-2 py-0.5 rounded transition-colors"
+                className="font-mono uppercase"
                 style={{
-                  backgroundColor: period === pp.key ? 'rgba(6,182,212,0.15)' : 'transparent',
-                  color: period === pp.key ? '#22d3ee' : 'var(--text-4)',
-                  border: `1px solid ${period === pp.key ? 'rgba(6,182,212,0.4)' : 'var(--border)'}`,
+                  fontSize: 10, letterSpacing: '0.08em', padding: '4px 10px', cursor: 'pointer', borderRadius: 999,
+                  background: period === pp.key ? 'var(--bg-soft)' : 'transparent',
+                  color: period === pp.key ? 'var(--ink)' : 'var(--ink-mute)',
+                  border: `1px solid ${period === pp.key ? 'var(--rule-strong)' : 'transparent'}`,
                 }}>
                 {pp.label}
               </button>
             ))}
           </div>
-        }
-      >
-        {/* período: matriz de KPIs */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-          <Kpi label={`Entraram (${period})`} value={p?.entraram ?? '—'} tone="info" />
-          <Kpi label="Completos" value={p?.completos ?? '—'} tone="success" sub={p ? `${p.taxa_completos}% taxa` : undefined} />
-          <Kpi label="Incompletos" value={p?.incompletos ?? '—'} tone="warning" />
-          <Kpi label="Com problema" value={p?.problema ?? '—'} tone="danger" />
-          <Kpi label="Viraram deal" value={p?.deals ?? '—'} tone="success" />
-          <Kpi label="Duplicados (email)" value={funnel?.duplicados ?? '—'} tone="warning" />
         </div>
+        <div className="kpi-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', rowGap: 28 }}>
+          <Kpi label={`Entraram · ${period}`} value={p?.entraram ?? '—'} tone="ink" foot={<>no funil unificado</>} />
+          <Kpi label="Completos" value={p?.completos ?? '—'} tone="olive" foot={p ? <><Delta>{p.taxa_completos}%</Delta> de completude</> : undefined} />
+          <Kpi label="Incompletos" value={p?.incompletos ?? '—'} tone="amber" foot={<>faltando campos obrigatórios</>} />
+          <Kpi label="Com problema" value={p?.problema ?? '—'} tone="crimson" foot={<>saúde ≠ ok</>} />
+          <Kpi label="Viraram deal" value={p?.deals ?? '—'} tone="plum" foot={<>chegaram ao Pipedrive</>} />
+          <Kpi label="Duplicados" value={funnel?.duplicados ?? '—'} tone="amber" foot={<>mesmo email em +1 base</>} />
+        </div>
+      </div>
 
-        {/* barra de estágios */}
-        <div className="px-3 py-3 border-t space-y-1.5" style={{ borderColor: 'var(--border-light)' }}>
+      {/* Funil em barras */}
+      <div>
+        <div className="flex items-center justify-between" style={{ marginBottom: 16, paddingBottom: 10, borderBottom: '1px solid var(--rule)' }}>
+          <h2 className="font-display" style={{ fontSize: 24, fontWeight: 400, color: 'var(--ink)' }}>
+            Onde o lead <span className="font-display-em">para</span>.
+          </h2>
+          <Eyebrow>02 · Estágios (30d)</Eyebrow>
+        </div>
+        <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--rule)', padding: 24 }}>
           {steps.length === 0 ? (
-            <div className="text-[10px] font-mono py-2" style={{ color: 'var(--text-4)' }}>Carregando funil…</div>
-          ) : steps.map((s) => (
-            <div key={s.label} className="flex items-center gap-2">
-              <span className="text-[10px] font-mono w-20 shrink-0" style={{ color: 'var(--text-3)' }}>{s.label}</span>
-              <div className="flex-1 h-3.5 rounded overflow-hidden" style={{ backgroundColor: 'var(--bg-input)' }}>
-                <div className="h-full rounded" style={{ width: `${(s.value / fmax) * 100}%`, backgroundColor: s.color, transition: 'width .6s ease' }} />
-              </div>
-              <span className="text-[11px] font-mono font-bold w-10 text-right" style={{ color: 'var(--text-1)' }}>{s.value}</span>
+            <div className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>Carregando funil…</div>
+          ) : (
+            <div className="flex flex-col" style={{ gap: 10 }}>
+              {steps.map((s) => (
+                <div key={s.label} style={{ display: 'grid', gridTemplateColumns: '160px 1fr 56px', alignItems: 'center', gap: 16 }}>
+                  <span style={{ fontSize: 13, color: 'var(--ink)' }}>{s.label}</span>
+                  <div style={{ background: 'var(--bg-soft)', height: 26, position: 'relative' }}>
+                    <div style={{ height: '100%', width: `${(s.value / fmax) * 100}%`, background: s.color, display: 'flex', alignItems: 'center', paddingLeft: 10, transition: 'width .6s ease' }}>
+                      <span className="font-mono" style={{ fontSize: 12, color: '#1A1814', fontWeight: 600 }}>{s.value}</span>
+                    </div>
+                  </div>
+                  <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink-mute)', textAlign: 'right' }}>
+                    {fmax ? Math.round((s.value / fmax) * 100) : 0}%
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
           {f && f.nao_processado > 0 && (
-            <div className="text-[10px] font-mono pt-1" style={{ color: 'var(--c-error)' }}>
-              ⚠ {f.nao_processado} lead(s) no RD não processados
+            <div className="font-mono" style={{ fontSize: 11, color: 'var(--crimson)', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
+              ⚠ {f.nao_processado} lead(s) chegaram no RD mas não foram processados
             </div>
           )}
         </div>
-      </Section>
+      </div>
 
-      {/* Linha de seções menores */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Pipedrive (S4) */}
-        <Section title="Resultado no Pipedrive" icon={Trophy}>
-          <div className="grid grid-cols-2 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-            <Kpi label="Deals criados" value={f?.deal ?? '—'} tone="success" />
-            <Kpi label="Em aberto" value={f ? Math.max(f.deal - f.ganho - f.perdido, 0) : '—'} tone="info" />
-            <Kpi label="Ganhos" value={f?.ganho ?? '—'} tone="won" />
-            <Kpi label="Perdidos" value={f?.perdido ?? '—'} tone="neutral" />
+      {/* Painéis menores */}
+      <div className="grid grid-cols-1 lg:grid-cols-3" style={{ gap: 24 }}>
+        <Panel title="Resultado no Pipedrive" eyebrow="S4 · deals">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+            {[
+              { l: 'Deals criados', v: f?.deal ?? '—', t: 'plum' as Tone },
+              { l: 'Em aberto', v: f ? Math.max(f.deal - f.ganho - f.perdido, 0) : '—', t: 'navy' as Tone },
+              { l: 'Ganhos', v: f?.ganho ?? '—', t: 'olive' as Tone },
+              { l: 'Perdidos', v: f?.perdido ?? '—', t: 'crimson' as Tone },
+            ].map((c, i) => (
+              <div key={c.l} style={{ padding: '16px 20px', borderRight: i % 2 === 0 ? '1px solid var(--rule)' : 'none', borderBottom: i < 2 ? '1px solid var(--rule)' : 'none' }}>
+                <div className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--ink-mute)', marginBottom: 6 }}>{c.l}</div>
+                <div className="font-display" style={{ fontSize: 30, lineHeight: 1, color: TONE[c.t] }}>{c.v}</div>
+              </div>
+            ))}
           </div>
-          <div className="px-3 py-2 text-[9px] font-mono border-t" style={{ borderColor: 'var(--border-light)', color: 'var(--text-4)' }}>
-            Ganho/perdido dependem do sync do Pipedrive (deals_snapshot)
+          <div className="font-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', padding: '10px 20px', borderTop: '1px solid var(--rule)' }}>
+            ganho/perdido dependem do sync do Pipedrive (deals_snapshot)
           </div>
-        </Section>
+        </Panel>
 
-        {/* Origens */}
-        <Section title="Por origem (30d)" icon={Users} action={
-          <button onClick={() => onNavigate('funil')} className="text-[9px] font-mono uppercase text-cyan-400 hover:underline">ver funil →</button>
-        }>
-          <div className="divide-y" style={{ borderColor: 'var(--border-light)' }}>
-            {(funnel?.por_origem ?? []).map((o) => (
-              <div key={o.source} className="flex items-center justify-between px-3 py-2">
-                <span className="text-[11px] font-mono" style={{ color: 'var(--text-2)' }}>{o.source_label}</span>
-                <span className="text-[12px] font-mono font-bold" style={{ color: 'var(--text-1)' }}>
-                  {o.total}
-                  {o.problema > 0 && <span className="ml-1.5 text-[10px]" style={{ color: 'var(--c-error)' }}>{o.problema}⚠</span>}
+        <Panel title="Por origem" eyebrow="30 dias"
+          action={<button onClick={() => onNavigate('funil')} className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--crimson)', letterSpacing: '0.08em', cursor: 'pointer', background: 'none', border: 0 }}>ver funil →</button>}>
+          <div>
+            {(funnel?.por_origem ?? []).map((o, i, arr) => (
+              <div key={o.source} className="flex items-center justify-between" style={{ padding: '12px 20px', borderBottom: i < arr.length - 1 ? '1px solid var(--rule)' : 'none' }}>
+                <span style={{ fontSize: 13, color: 'var(--ink-mute)' }}>{o.source_label}</span>
+                <span className="font-mono" style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>
+                  {o.total}{o.problema > 0 && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--crimson)' }}>{o.problema}⚠</span>}
                 </span>
               </div>
             ))}
-            {!funnel && <div className="px-3 py-3 text-[10px] font-mono" style={{ color: 'var(--text-4)' }}>Carregando…</div>}
+            {!funnel && <div className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', padding: '12px 20px' }}>Carregando…</div>}
           </div>
-        </Section>
+        </Panel>
 
-        {/* Alertas + Leads */}
-        <Section title="Alertas & qualidade" icon={AlertCircle} action={
-          <button onClick={() => onNavigate('alertas')} className="text-[9px] font-mono uppercase text-cyan-400 hover:underline">ver alertas →</button>
-        }>
-          <div className="grid grid-cols-2 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-            <Kpi label="Alertas abertos" value={dashboard.openCount} tone={dashboard.openCount > 0 ? 'danger' : 'success'} />
-            <Kpi label="Resolvidos hoje" value={dashboard.resolvedToday} tone="success" />
-            <Kpi label="Completude 24h" value={`${leadsStats?.completion_rate_24h ?? 0}%`} tone="info" sub={`7d ${leadsStats?.completion_rate_7d ?? 0}%`} />
-            <Kpi label="Leads 7d" value={leadsStats?.total_7d ?? 0} tone="neutral" sub={`${leadsStats?.incompletos_7d ?? 0} incompletos`} />
+        <Panel title="Alertas & qualidade" eyebrow="agora"
+          action={<button onClick={() => onNavigate('alertas')} className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--crimson)', letterSpacing: '0.08em', cursor: 'pointer', background: 'none', border: 0 }}>ver alertas →</button>}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+            {[
+              { l: 'Alertas abertos', v: dashboard.openCount, t: (dashboard.openCount > 0 ? 'crimson' : 'olive') as Tone },
+              { l: 'Resolvidos hoje', v: dashboard.resolvedToday, t: 'olive' as Tone },
+              { l: 'Completude 24h', v: `${leadsStats?.completion_rate_24h ?? 0}%`, t: 'navy' as Tone },
+              { l: 'Leads 7d', v: leadsStats?.total_7d ?? 0, t: 'ink' as Tone },
+            ].map((c, i) => (
+              <div key={c.l} style={{ padding: '16px 20px', borderRight: i % 2 === 0 ? '1px solid var(--rule)' : 'none', borderBottom: i < 2 ? '1px solid var(--rule)' : 'none' }}>
+                <div className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--ink-mute)', marginBottom: 6 }}>{c.l}</div>
+                <div className="font-display" style={{ fontSize: 30, lineHeight: 1, color: TONE[c.t] }}>{c.v}</div>
+              </div>
+            ))}
           </div>
-        </Section>
+        </Panel>
       </div>
     </div>
   );
