@@ -28,6 +28,7 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
   const [rows, setRows] = useState<JourneyLead[]>([]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<JourneyStats | null>(null);
+  const [flow, setFlow] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -62,10 +63,11 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
       const sp = new URLSearchParams();
       if (fromDate) sp.append('from', new Date(fromDate + 'T00:00:00').toISOString());
       if (toDate) sp.append('to', new Date(toDate + 'T23:59:59').toISOString());
-      const [jr, sr] = await Promise.all([fetch(`/api/journey?${qs}`), fetch(`/api/journey/stats?${sp}`)]);
+      const [jr, sr, fr] = await Promise.all([fetch(`/api/journey?${qs}`), fetch(`/api/journey/stats?${sp}`), fetch(`/api/journey/flow-stats?${sp}`)]);
       const jj = jr.ok ? await jr.json() : { data: [], total: 0 };
       setRows(jj.data || []); setTotal(jj.total || 0);
       setStats(sr.ok ? await sr.json() : null);
+      setFlow(fr.ok ? await fr.json() : null);
     } catch (e) { console.error('journey fetch', e); } finally { setLoading(false); }
   }, [stageFilter, healthFilter, problemOnly, dupOnly, dsearch, fromDate, toDate]);
 
@@ -160,43 +162,33 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
             ))}
           </div>
         </div>
-        {stats && (
+        {flow && (
           <div className="p-4 space-y-1.5">
             {[
-              { label: 'Webhook Framer', val: stats.framer, color: '#D49555', sub: 'webhook disparou com dados' },
-              { label: 'Chegou ao RD', val: stats.framer_to_rd, color: '#7CA5DA', sub: `${stats.taxa_framer_rd}% do Framer · +${stats.rd_direct} diretos no RD` },
-              { label: 'MQL (Fluxo Pipedrive)', val: stats.processado, color: '#BD8AA8', sub: `${stats.taxa_rd_proc}% do RD` },
-              { label: 'Deal criado', val: stats.deal, color: '#A8B782', sub: `${stats.taxa_proc_deal}% dos MQL` },
+              { label: 'Webhook Framer', val: flow.framer_total, color: '#D49555', sub: 'gatilho do forms disparou' },
+              { label: 'Chegou ao RD', val: flow.framer_ok, color: '#7CA5DA', sub: `${flow.taxa_framer_ok}% concluíram sem erro` },
+              { label: 'MQL (Fluxo Pipedrive)', val: flow.pass_total, color: '#BD8AA8', sub: `iniciou a passagem · ${flow.taxa_rd_mql}% do RD` },
+              { label: 'Deal criado', val: flow.pass_ok, color: '#A8B782', sub: `${flow.taxa_mql_deal}% das passagens sem erro` },
             ].map((s) => {
-              const max = Math.max(stats.framer, 1);
+              const max = Math.max(flow.framer_total, 1);
               return (
-                <div key={s.label} style={{ display: 'grid', gridTemplateColumns: '160px 1fr 48px', alignItems: 'center', gap: 12 }}>
+                <div key={s.label} style={{ display: 'grid', gridTemplateColumns: '170px 1fr 150px', alignItems: 'center', gap: 12 }}>
                   <span style={{ fontSize: 12, color: 'var(--ink)' }}>{s.label}</span>
                   <div style={{ background: 'var(--bg-soft)', height: 24, position: 'relative' }}>
                     <div style={{ height: '100%', width: `${(s.val / max) * 100}%`, background: s.color, display: 'flex', alignItems: 'center', paddingLeft: 8, transition: 'width .6s' }}>
                       <span className="font-mono" style={{ fontSize: 11, color: '#1A1814', fontWeight: 600 }}>{s.val}</span>
                     </div>
                   </div>
-                  <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)' }}>{s.sub.split('·')[0]}</span>
+                  <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)' }}>{s.sub}</span>
                 </div>
               );
             })}
-            {/* Vazamentos clicáveis */}
             <div className="flex flex-wrap gap-2 pt-2" style={{ borderTop: '1px solid var(--rule)', marginTop: 8 }}>
-              <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)', alignSelf: 'center' }}>Vazamentos:</span>
-              {[
-                { label: 'Framer sem chegar ao RD', val: stats.leak_framer_sem_rd, stage: 'form' as JourneyStage },
-                { label: 'No RD sem virar MQL', val: stats.leak_rd_sem_proc, stage: 'rd' as JourneyStage },
-                { label: 'MQL sem deal', val: stats.leak_proc_sem_deal, stage: 'processado' as JourneyStage },
-              ].map((l) => (
-                <button key={l.label} onClick={() => setStageFilter(stageFilter === l.stage ? '' : l.stage)}
-                  className="font-mono" style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, border: `1px solid ${stageFilter === l.stage ? 'var(--crimson)' : 'var(--border)'}`, background: stageFilter === l.stage ? 'var(--crimson-soft)' : 'var(--bg-soft)', color: l.val > 0 ? 'var(--crimson)' : 'var(--text-3)' }}>
-                  {l.label}: <b>{l.val}</b>
-                </button>
-              ))}
-              <span className="font-mono" style={{ fontSize: 10, padding: '3px 8px', color: 'var(--olive)' }}>Ganhos: <b>{stats.ganho}</b></span>
-              <span className="font-mono" style={{ fontSize: 10, padding: '3px 8px', color: 'var(--text-3)' }}>Perdidos: <b>{stats.perdido}</b></span>
-              <span className="font-mono" style={{ fontSize: 10, padding: '3px 8px', color: 'var(--navy)' }}>Webinar: <b>{stats.webinar}</b></span>
+              <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)', alignSelf: 'center' }}>Erros:</span>
+              <span className="font-mono" style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: 'var(--bg-soft)', color: flow.framer_falhou > 0 ? 'var(--crimson)' : 'var(--text-3)' }}>Framer disparou sem concluir: <b>{flow.framer_falhou}</b></span>
+              <span className="font-mono" style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: 'var(--bg-soft)', color: flow.pass_falhou > 0 ? 'var(--crimson)' : 'var(--text-3)' }}>Passagem com erro: <b>{flow.pass_falhou}</b></span>
+              <span className="font-mono" style={{ fontSize: 10, padding: '3px 8px', color: 'var(--navy)' }}>Webinar: <b>{stats?.webinar ?? 0}</b></span>
+              <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)', marginLeft: 'auto', alignSelf: 'center' }}>por execução do n8n</span>
             </div>
           </div>
         )}
