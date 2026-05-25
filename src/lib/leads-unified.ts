@@ -21,7 +21,9 @@ export type FunnelStage =
   | 'inscrito'
   | 'nao_processado'
   | 'processado_sem_deal'
-  | 'deal_criado';
+  | 'deal_criado'
+  | 'deal_ganho'
+  | 'deal_perdido';
 
 export const STAGE_LABELS: Record<FunnelStage, string> = {
   incompleto: 'Incompleto',
@@ -30,9 +32,22 @@ export const STAGE_LABELS: Record<FunnelStage, string> = {
   nao_processado: 'Não processado',
   processado_sem_deal: 'Processado (sem deal)',
   deal_criado: 'Deal criado',
+  deal_ganho: 'Deal ganho',
+  deal_perdido: 'Deal perdido',
 };
 
 export type Health = 'ok' | 'atencao' | 'erro';
+
+// S4 — status atual do deal no Pipedrive (deals_snapshot). Null até o sync do Pipedrive rodar.
+export interface PipeStatus {
+  status: 'open' | 'won' | 'lost' | string | null;
+  stage_id: number | null;
+  valor: number | null;
+  won_at: string | null;
+  lost_at: string | null;
+  lost_reason: string | null;
+  atualizado_em: string | null;
+}
 
 export interface UnifiedLead {
   uid: string;
@@ -64,6 +79,7 @@ export interface UnifiedLead {
     motivo_rota: string | null;
   } | null;
   pipedrive: { person_id: number | null; deal_id: number | null } | null;
+  pipe: PipeStatus | null;
   is_duplicate: boolean;
   also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[];
   raw: Record<string, any>;
@@ -131,7 +147,7 @@ function normalize(source: LeadSourceKey, row: any): UnifiedLead {
     };
   }
 
-  const { stage, health } = classify(source, status, routing, pipedrive);
+  const { stage, health } = classify(source, status, routing, pipedrive, null);
 
   return {
     uid: `${source}:${row.id}`,
@@ -151,28 +167,81 @@ function normalize(source: LeadSourceKey, row: any): UnifiedLead {
     health,
     routing,
     pipedrive,
+    pipe: null,
     is_duplicate: false,
     also_in: [],
     raw: row,
   };
 }
 
-// Define o estágio do funil onde o lead parou + a saúde
+// Define o estágio do funil onde o lead parou + a saúde.
+// pipe (deals_snapshot) tem prioridade: define ganho/perdido quando o deal já tem desfecho.
 function classify(
   source: LeadSourceKey,
   status: 'completo' | 'incompleto',
   routing: UnifiedLead['routing'],
   pipedrive: UnifiedLead['pipedrive'],
+  pipe: PipeStatus | null,
 ): { stage: FunnelStage; health: Health } {
   if (status === 'incompleto') return { stage: 'incompleto', health: 'atencao' };
 
   if (source === 'rd_pipedrive') {
-    if (pipedrive?.deal_id) return { stage: 'deal_criado', health: 'ok' };
+    if (pipedrive?.deal_id) {
+      if (pipe?.status === 'won') return { stage: 'deal_ganho', health: 'ok' };
+      if (pipe?.status === 'lost') return { stage: 'deal_perdido', health: 'atencao' };
+      return { stage: 'deal_criado', health: 'ok' };
+    }
     if (routing?.processado === true) return { stage: 'processado_sem_deal', health: 'atencao' };
     return { stage: 'nao_processado', health: 'erro' };
   }
   if (source === 'webinar') return { stage: 'inscrito', health: 'ok' };
   return { stage: 'capturado', health: 'ok' };
+}
+
+// Busca o status atual dos deals no Pipedrive (deals_snapshot) e enriquece os leads RD→Pipedrive.
+// Tolerante a falhas: se a tabela não existir / sem permissão, apenas mantém pipe = null.
+async function enrichWithPipedrive(db: SupabaseClient, leads: UnifiedLead[]): Promise<void> {
+  const dealIds = Array.from(
+    new Set(
+      leads
+        .map((l) => l.pipedrive?.deal_id)
+        .filter((d): d is number => d !== null && d !== undefined),
+    ),
+  );
+  if (!dealIds.length) return;
+
+  try {
+    const { data, error } = await db
+      .from('deals_snapshot')
+      .select('deal_id,status,stage_id,value,won_time,lost_time,lost_reason,update_time')
+      .in('deal_id', dealIds);
+    if (error || !data) return;
+
+    const byDeal = new Map<string, any>();
+    for (const d of data) byDeal.set(String(d.deal_id), d);
+
+    for (const l of leads) {
+      const did = l.pipedrive?.deal_id;
+      if (did === null || did === undefined) continue;
+      const snap = byDeal.get(String(did));
+      if (!snap) continue;
+      l.pipe = {
+        status: snap.status ?? null,
+        stage_id: snap.stage_id ?? null,
+        valor: snap.value ?? null,
+        won_at: snap.won_time ?? null,
+        lost_at: snap.lost_time ?? null,
+        lost_reason: snap.lost_reason ?? null,
+        atualizado_em: snap.update_time ?? null,
+      };
+      const { stage, health } = classify(l.source, l.status, l.routing, l.pipedrive, l.pipe);
+      l.stage = stage;
+      l.stage_label = STAGE_LABELS[stage];
+      l.health = health;
+    }
+  } catch {
+    /* deals_snapshot indisponível — segue sem S4 */
+  }
 }
 
 function normEmail(e: string | null): string {
@@ -239,6 +308,9 @@ export async function fetchUnifiedLeads(
     }),
   );
 
+  // S4: status atual no Pipedrive (deals_snapshot) — enriquece e reclassifica deal_ganho/perdido
+  await enrichWithPipedrive(db, all);
+
   // Duplicados são detectados no conjunto completo da janela (todas as fontes consultadas)
   indexDuplicates(all);
 
@@ -297,7 +369,7 @@ export async function fetchUnifiedStats(db: SupabaseClient): Promise<FunnelStats
     const completos = subset.filter((l) => l.status === 'completo').length;
     const incompletos = entraram - completos;
     const problema = subset.filter((l) => l.health !== 'ok').length;
-    const deals = subset.filter((l) => l.stage === 'deal_criado').length;
+    const deals = subset.filter((l) => l.stage === 'deal_criado' || l.stage === 'deal_ganho' || l.stage === 'deal_perdido').length;
     return {
       entraram,
       completos,
@@ -322,11 +394,14 @@ export async function fetchUnifiedStats(db: SupabaseClient): Promise<FunnelStats
   });
 
   const rd = leads.filter((l) => l.source === 'rd_pipedrive');
+  const isDeal = (s: FunnelStage) => s === 'deal_criado' || s === 'deal_ganho' || s === 'deal_perdido';
   const funil_rd = {
     capturado: rd.length,
-    processado: rd.filter((l) => l.routing?.processado === true || l.stage === 'deal_criado').length,
-    deal: rd.filter((l) => l.stage === 'deal_criado').length,
+    processado: rd.filter((l) => l.routing?.processado === true || isDeal(l.stage)).length,
+    deal: rd.filter((l) => isDeal(l.stage)).length,
     nao_processado: rd.filter((l) => l.stage === 'nao_processado').length,
+    ganho: rd.filter((l) => l.stage === 'deal_ganho').length,
+    perdido: rd.filter((l) => l.stage === 'deal_perdido').length,
   };
 
   return {

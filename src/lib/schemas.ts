@@ -82,8 +82,20 @@ export interface Lead {
 export type LeadSourceKey = 'framer' | 'rd_pipedrive' | 'webinar';
 export type FunnelStage =
   | 'incompleto' | 'capturado' | 'inscrito'
-  | 'nao_processado' | 'processado_sem_deal' | 'deal_criado';
+  | 'nao_processado' | 'processado_sem_deal' | 'deal_criado'
+  | 'deal_ganho' | 'deal_perdido';
 export type Health = 'ok' | 'atencao' | 'erro';
+
+// S4 — status atual do deal no Pipedrive (vem de deals_snapshot; null até o sync do Pipedrive rodar)
+export interface PipeStatus {
+  status: 'open' | 'won' | 'lost' | string | null;
+  stage_id: number | null;
+  valor: number | null;
+  won_at: string | null;
+  lost_at: string | null;
+  lost_reason: string | null;
+  atualizado_em: string | null;
+}
 
 export interface UnifiedLead {
   uid: string;
@@ -115,6 +127,7 @@ export interface UnifiedLead {
     motivo_rota: string | null;
   } | null;
   pipedrive: { person_id: number | null; deal_id: number | null } | null;
+  pipe: PipeStatus | null;
   is_duplicate: boolean;
   also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[];
   raw: Record<string, any>;
@@ -132,7 +145,7 @@ interface PeriodStats {
 export interface FunnelStats {
   periodos: Record<'h24' | 'hoje' | 'd7', PeriodStats>;
   por_origem: { source: LeadSourceKey; source_label: string; total: number; completos: number; problema: number }[];
-  funil_rd: { capturado: number; processado: number; deal: number; nao_processado: number };
+  funil_rd: { capturado: number; processado: number; deal: number; nao_processado: number; ganho: number; perdido: number };
   duplicados: number;
 }
 

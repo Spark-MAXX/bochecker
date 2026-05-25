@@ -167,6 +167,42 @@ async function startServer() {
     res.json({ status: 'ok', timestamp: new Date().toISOString(), monitoredWorkflows: MONITORED_WORKFLOWS });
   });
 
+  // GET /api/health/db — valida conexão/credencial do Supabase (leitura + escrita real)
+  app.get('/api/health/db', async (_req, res) => {
+    const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || null;
+    const hasKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const projectRef = url ? url.replace(/^https?:\/\//, '').replace(/\..*$/, '') : null;
+    const db = getSupabaseAdmin();
+    if (!db) {
+      return res.status(503).json({ ok: false, reason: 'env_missing', has_url: !!url, has_service_key: hasKey, project_ref: projectRef });
+    }
+    const out: any = { ok: false, project_ref: projectRef, has_service_key: hasKey, read_ok: false, write_ok: false };
+
+    const read = await db.from('n8n_workflows').select('id', { count: 'exact', head: true });
+    if (read.error) {
+      out.error = read.error.message;
+      out.hint = /invalid api key/i.test(read.error.message)
+        ? 'SUPABASE_SERVICE_ROLE_KEY não é válida para este projeto. Confira o ref e use a service_role real.'
+        : 'Falha de leitura no Supabase.';
+      return res.status(502).json(out);
+    }
+    out.read_ok = true;
+
+    const probe = { execution_id: '__healthcheck__', workflow_id: '__healthcheck__', workflow_name: 'healthcheck', status: 'success' };
+    const w = await db.from('n8n_executions').upsert(probe, { onConflict: 'execution_id' });
+    if (w.error) {
+      out.error = w.error.message;
+      out.hint = /row-level security|rls/i.test(w.error.message)
+        ? 'A chave é válida mas NÃO tem permissão de escrita (provavelmente anon). Use a service_role.'
+        : 'Falha de escrita no Supabase.';
+      return res.status(502).json(out);
+    }
+    await db.from('n8n_executions').delete().eq('execution_id', '__healthcheck__');
+    out.write_ok = true;
+    out.ok = true;
+    res.json(out);
+  });
+
   // POST /api/alerts/lead-incompleto
   app.post('/api/alerts/lead-incompleto', webhookAuth, async (req, res) => {
     const supabaseAdmin = getSupabaseAdmin();
