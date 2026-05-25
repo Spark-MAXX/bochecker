@@ -795,17 +795,17 @@ app.get('/api/journey/stats', async (req, res) => {
     const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0);
     const framer = js.filter((j) => j.has_framer).length;
     const framer_to_rd = js.filter((j) => j.has_framer && j.has_rd).length;
+    const mql = js.filter((j) => j.has_framer && j.has_rd && (j.processado === true || !!j.deal_id)).length;
+    const deal = js.filter((j) => j.has_framer && j.has_rd && !!j.deal_id).length;
     const rd = js.filter((j) => j.has_rd).length;
-    const processado = js.filter((j) => j.has_rd && (j.processado === true || j.deal_id)).length;
-    const deal = js.filter((j) => j.deal_id).length;
     res.json({
-      total: js.length, framer, framer_to_rd, rd, rd_direct: js.filter((j) => j.has_rd && !j.has_framer).length, processado, deal,
-      aberto: js.filter((j) => j.deal_id && j.stage === 'deal').length, ganho: js.filter((j) => j.stage === 'ganho').length, perdido: js.filter((j) => j.stage === 'perdido').length,
+      total: js.length, framer, framer_to_rd, rd, rd_direct: js.filter((j) => j.has_rd && !j.has_framer).length, processado: mql, deal,
+      aberto: js.filter((j) => j.has_framer && j.deal_id && j.stage === 'deal').length, ganho: js.filter((j) => j.has_framer && j.stage === 'ganho').length, perdido: js.filter((j) => j.has_framer && j.stage === 'perdido').length,
       webinar: js.filter((j) => j.has_webinar).length,
       leak_framer_sem_rd: js.filter((j) => j.has_framer && !j.has_rd).length,
-      leak_rd_sem_proc: js.filter((j) => j.has_rd && j.processado !== true && !j.deal_id).length,
-      leak_proc_sem_deal: js.filter((j) => j.has_rd && j.processado === true && !j.deal_id).length,
-      taxa_framer_rd: pct(framer_to_rd, framer), taxa_rd_proc: pct(processado, rd), taxa_proc_deal: pct(deal, processado),
+      leak_rd_sem_proc: js.filter((j) => j.has_framer && j.has_rd && j.processado !== true && !j.deal_id).length,
+      leak_proc_sem_deal: js.filter((j) => j.has_framer && j.has_rd && j.processado === true && !j.deal_id).length,
+      taxa_framer_rd: pct(framer_to_rd, framer), taxa_rd_proc: pct(mql, framer_to_rd), taxa_proc_deal: pct(deal, mql),
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
