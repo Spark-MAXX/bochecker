@@ -8,7 +8,7 @@ export type JourneyStage = 'form' | 'rd' | 'processado' | 'deal' | 'ganho' | 'pe
 export type Health = 'ok' | 'atencao' | 'erro';
 
 export const JOURNEY_STAGE_LABEL: Record<JourneyStage, string> = {
-  form: 'Form Framer', rd: 'No RD', processado: 'Processado', deal: 'Deal criado',
+  form: 'Webhook Framer', rd: 'Chegou ao RD', processado: 'MQL (Fluxo Pipedrive)', deal: 'Deal criado',
   ganho: 'Deal ganho', perdido: 'Deal perdido', webinar: 'Inscrito (Webinar)',
 };
 
@@ -88,11 +88,11 @@ function classify(j: JourneyLead): void {
     else if (j.pipe?.status === 'lost') { stage = 'perdido'; health = 'atencao'; }
     else stage = 'deal';
   } else if (j.has_rd && j.processado === true) {
-    stage = 'processado'; health = 'atencao'; stalled = 'Processado pelo RD, mas sem deal no Pipedrive';
+    stage = 'processado'; health = 'atencao'; stalled = 'Virou MQL (Fluxo Pipedrive), mas sem deal criado';
   } else if (j.has_rd) {
-    stage = 'rd'; health = 'erro'; stalled = 'Chegou ao RD mas não foi processado';
+    stage = 'rd'; health = 'erro'; stalled = 'Chegou ao RD mas não virou MQL (Fluxo Pipedrive)';
   } else if (j.has_framer) {
-    stage = 'form'; health = 'atencao'; stalled = 'Preencheu o Framer mas não chegou ao RD';
+    stage = 'form'; health = 'atencao'; stalled = 'Webhook Framer recebido, mas não chegou ao RD';
   } else if (j.has_webinar) {
     stage = 'webinar';
   } else {

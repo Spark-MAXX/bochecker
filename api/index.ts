@@ -699,7 +699,7 @@ app.post('/api/funnel/dedupe', webhookAuth, async (req, res) => {
 
 // ── Jornada unificada (Framer → RD → processado → deal → status) ─────────────
 type JStage = 'form' | 'rd' | 'processado' | 'deal' | 'ganho' | 'perdido' | 'webinar';
-const J_LABEL: Record<JStage, string> = { form: 'Form Framer', rd: 'No RD', processado: 'Processado', deal: 'Deal criado', ganho: 'Deal ganho', perdido: 'Deal perdido', webinar: 'Inscrito (Webinar)' };
+const J_LABEL: Record<JStage, string> = { form: 'Webhook Framer', rd: 'Chegou ao RD', processado: 'MQL (Fluxo Pipedrive)', deal: 'Deal criado', ganho: 'Deal ganho', perdido: 'Deal perdido', webinar: 'Inscrito (Webinar)' };
 const J_SEL = {
   framer: 'id,criado_em,email,nome,telefone,empresa,produto,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier',
   rd: 'id,criado_em,lead_email,lead_nome,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id',
@@ -716,9 +716,9 @@ function jClassify(j: any): void {
   j.reached = { form: j.has_framer, rd: j.has_rd, processado: !!j.processado || !!j.deal_id, deal: !!j.deal_id };
   let stage: JStage; let health = 'ok'; let stalled: string | null = null;
   if (j.deal_id) { if (j.pipe?.status === 'won') stage = 'ganho'; else if (j.pipe?.status === 'lost') { stage = 'perdido'; health = 'atencao'; } else stage = 'deal'; }
-  else if (j.has_rd && j.processado === true) { stage = 'processado'; health = 'atencao'; stalled = 'Processado pelo RD, mas sem deal no Pipedrive'; }
-  else if (j.has_rd) { stage = 'rd'; health = 'erro'; stalled = 'Chegou ao RD mas não foi processado'; }
-  else if (j.has_framer) { stage = 'form'; health = 'atencao'; stalled = 'Preencheu o Framer mas não chegou ao RD'; }
+  else if (j.has_rd && j.processado === true) { stage = 'processado'; health = 'atencao'; stalled = 'Virou MQL (Fluxo Pipedrive), mas sem deal criado'; }
+  else if (j.has_rd) { stage = 'rd'; health = 'erro'; stalled = 'Chegou ao RD mas não virou MQL (Fluxo Pipedrive)'; }
+  else if (j.has_framer) { stage = 'form'; health = 'atencao'; stalled = 'Webhook Framer recebido, mas não chegou ao RD'; }
   else if (j.has_webinar) { stage = 'webinar'; }
   else { stage = 'form'; }
   j.stage = stage; j.stage_label = J_LABEL[stage]; j.health = health; j.stalled = stalled;
