@@ -4,7 +4,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   GitBranch, CheckCircle2, AlertTriangle, XCircle, Search, ChevronDown, ChevronRight,
-  Mail, Phone, Building2, Package, ExternalLink, RefreshCcw, Filter, Copy, Route, Briefcase,
+  Mail, Phone, Building2, Package, ExternalLink, RefreshCcw, Filter, Copy, Route, Briefcase, Trash2,
 } from 'lucide-react';
 import type { UnifiedLead, FunnelStats, LeadSourceKey, FunnelStage, Health } from '../lib/schemas';
 
@@ -54,6 +54,12 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
+  // Limpeza das bases (gated por X-Webhook-Secret)
+  const [adminSecret, setAdminSecret] = useState<string>(() => localStorage.getItem('spark-admin-secret') || '');
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(search.trim()), 350);
     return () => clearTimeout(id);
@@ -84,6 +90,44 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
   }, [sourceFilter, stageFilter, problemOnly, dupOnly, debouncedSearch]);
 
   useEffect(() => { fetchData(); }, [fetchData, refreshKey]);
+
+  const toggleSelecting = () => {
+    if (selecting) { setSelecting(false); setSelected(new Set()); return; }
+    let s = adminSecret;
+    if (!s) {
+      s = (window.prompt('Senha de limpeza (o mesmo valor de WEBHOOK_SECRET):') || '').trim();
+      if (!s) return;
+      setAdminSecret(s); localStorage.setItem('spark-admin-secret', s);
+    }
+    setExpanded(null); setSelecting(true);
+  };
+
+  const toggleRow = (uid: string) => {
+    setSelected((prev) => { const n = new Set(prev); n.has(uid) ? n.delete(uid) : n.add(uid); return n; });
+  };
+
+  const deleteSelected = async () => {
+    const items = leads.filter((l) => selected.has(l.uid)).map((l) => ({ source: l.source, id: l.source_id }));
+    if (!items.length) return;
+    if (!window.confirm(`Excluir ${items.length} lead(s) das bases? Ação permanente.`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch('/api/funnel/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': adminSecret },
+        body: JSON.stringify({ items }),
+      });
+      if (res.status === 401) {
+        alert('Senha incorreta. Reabra a Limpeza e informe novamente.');
+        localStorage.removeItem('spark-admin-secret'); setAdminSecret(''); setSelecting(false); setSelected(new Set());
+        return;
+      }
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { alert('Erro ao excluir: ' + (json.error || res.status)); return; }
+      setSelected(new Set()); setSelecting(false);
+      fetchData();
+    } finally { setDeleting(false); }
+  };
 
   const p = stats?.periodos[period];
 
@@ -139,12 +183,31 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
           <Toggle active={problemOnly} onClick={() => setProblemOnly((v) => !v)} color="#ef4444" label="Só problemas" />
           <Toggle active={dupOnly} onClick={() => setDupOnly((v) => !v)} color="#f59e0b" label="Duplicados" />
           <button onClick={fetchData} disabled={loading}
-            className="flex items-center gap-1.5 text-[10px] font-mono transition-colors disabled:opacity-40 hover:text-cyan-500 px-2 py-1"
+            className="flex items-center gap-1.5 text-[10px] font-mono transition-colors disabled:opacity-40 px-2 py-1"
             style={{ color: 'var(--text-3)' }}>
             <RefreshCcw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} /> SYNC
           </button>
+          <button onClick={toggleSelecting}
+            className="flex items-center gap-1.5 text-[10px] font-mono uppercase px-2 py-1"
+            style={{ color: selecting ? 'var(--crimson)' : 'var(--text-3)' }} title="Limpar leads das bases">
+            <Trash2 className="h-3 w-3" /> {selecting ? 'Cancelar' : 'Limpeza'}
+          </button>
         </div>
       </div>
+
+      {selecting && (
+        <div className="px-4 py-2 border-b flex items-center justify-between gap-3"
+          style={{ backgroundColor: 'var(--crimson-soft)', borderColor: 'var(--border)' }}>
+          <span className="text-[11px] font-mono" style={{ color: 'var(--crimson)' }}>
+            {selected.size} selecionado(s) · marque as linhas e exclua das bases (Framer / RD / Webinar)
+          </span>
+          <button onClick={deleteSelected} disabled={deleting || selected.size === 0}
+            className="text-[10px] font-mono uppercase px-3 py-1 rounded disabled:opacity-40"
+            style={{ background: 'var(--crimson)', color: '#fff' }}>
+            {deleting ? 'Excluindo…' : `Excluir ${selected.size}`}
+          </button>
+        </div>
+      )}
 
       {/* Stats + período */}
       {stats && (
@@ -227,12 +290,14 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
                 return (
                   <React.Fragment key={lead.uid}>
                     <tr className="group transition-colors cursor-pointer border-l-2"
-                      style={{ borderLeftColor: hm.color, backgroundColor: rowBg }}
-                      onClick={() => setExpanded(isExpanded ? null : lead.uid)}>
+                      style={{ borderLeftColor: hm.color, backgroundColor: selecting && selected.has(lead.uid) ? 'var(--crimson-soft)' : rowBg }}
+                      onClick={() => (selecting ? toggleRow(lead.uid) : setExpanded(isExpanded ? null : lead.uid))}>
                       <td className="pl-3 pr-0">
-                        {isExpanded
-                          ? <ChevronDown className="h-3.5 w-3.5" style={{ color: 'var(--text-3)' }} />
-                          : <ChevronRight className="h-3.5 w-3.5" style={{ color: 'var(--text-4)' }} />}
+                        {selecting
+                          ? <input type="checkbox" readOnly checked={selected.has(lead.uid)} style={{ accentColor: 'var(--crimson)', cursor: 'pointer' }} />
+                          : isExpanded
+                            ? <ChevronDown className="h-3.5 w-3.5" style={{ color: 'var(--text-3)' }} />
+                            : <ChevronRight className="h-3.5 w-3.5" style={{ color: 'var(--text-4)' }} />}
                       </td>
                       <td className="p-3 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase"
@@ -241,7 +306,7 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
                         </span>
                         {lead.is_duplicate && (
                           <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase"
-                            style={{ backgroundColor: 'rgba(245,158,11,0.12)', color: '#f59e0b' }} title="Email duplicado em outra base">
+                            style={{ backgroundColor: 'rgba(245,158,11,0.12)', color: '#f59e0b' }} title="Email repetido na MESMA base">
                             <Copy className="h-2 w-2" />DUP
                           </span>
                         )}

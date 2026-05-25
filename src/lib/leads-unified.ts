@@ -248,23 +248,37 @@ function normEmail(e: string | null): string {
   return (e || '').trim().toLowerCase();
 }
 
-// Marca duplicados (mesmo email em >1 registro) e preenche also_in (presença em outras bases)
+// Marca duplicados e presença cruzada.
+// REGRA: duplicado = mesmo email repetido NA MESMA base. Estar em bases diferentes
+// (ex.: Framer e RD→Pipedrive) NÃO é duplicado — é o mesmo lead avançando no funil.
 function indexDuplicates(leads: UnifiedLead[]): void {
-  const byEmail = new Map<string, UnifiedLead[]>();
+  const byEmail = new Map<string, UnifiedLead[]>();        // presença cruzada (todas as bases)
+  const bySourceEmail = new Map<string, UnifiedLead[]>();  // duplicidade dentro da mesma base
   for (const l of leads) {
-    const key = normEmail(l.email);
-    if (!key) continue;
-    const arr = byEmail.get(key) || [];
+    const email = normEmail(l.email);
+    if (!email) continue;
+    let arr = byEmail.get(email);
+    if (!arr) { arr = []; byEmail.set(email, arr); }
     arr.push(l);
-    byEmail.set(key, arr);
+    const sk = `${l.source}::${email}`;
+    let sarr = bySourceEmail.get(sk);
+    if (!sarr) { sarr = []; bySourceEmail.set(sk, sarr); }
+    sarr.push(l);
   }
+  // Duplicado real: mesmo email > 1x na mesma base
+  for (const group of bySourceEmail.values()) {
+    if (group.length < 2) continue;
+    for (const l of group) l.is_duplicate = true;
+  }
+  // Informativo: mesmo email presente em OUTRAS bases (não conta como duplicado)
   for (const group of byEmail.values()) {
     if (group.length < 2) continue;
     for (const l of group) {
-      l.is_duplicate = true;
-      l.also_in = group
-        .filter((o) => o.uid !== l.uid)
-        .map((o) => ({ source: o.source, stage: o.stage, deal_id: o.pipedrive?.deal_id ?? null }));
+      const others = group.filter((o) => o.source !== l.source);
+      const seen = new Set<string>();
+      l.also_in = others
+        .map((o) => ({ source: o.source, stage: o.stage, deal_id: o.pipedrive?.deal_id ?? null }))
+        .filter((v) => { const k = `${v.source}:${v.deal_id}`; if (seen.has(k)) return false; seen.add(k); return true; });
     }
   }
 }

@@ -600,6 +600,24 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // POST /api/funnel/delete — limpeza de leads das bases (gated por X-Webhook-Secret)
+  app.post('/api/funnel/delete', webhookAuth, async (req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    const TBL: Record<string, string> = { framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
+    const items: { source: string; id: number | string }[] = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: 'items vazio' });
+    let deleted = 0; const errors: string[] = [];
+    for (const it of items) {
+      const table = TBL[it.source];
+      if (!table || it.id === undefined || it.id === null) { errors.push(`item inválido: ${JSON.stringify(it)}`); continue; }
+      const { error } = await db.from(table).delete().eq('id', it.id);
+      if (error) errors.push(`${it.source}:${it.id} → ${error.message}`);
+      else deleted++;
+    }
+    res.json({ deleted, errors });
+  });
+
   // GET /api/leads/stats — contadores agregados
   app.get('/api/leads/stats', async (req, res) => {
     const supabaseAdmin = getSupabaseAdmin();
