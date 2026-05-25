@@ -164,6 +164,46 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// GET /api/health/db — valida a conexão/credencial do Supabase (leitura + escrita real).
+// Útil para diagnosticar o "Invalid API key" sem depender do n8n.
+app.get('/api/health/db', async (_req, res) => {
+  const url = process.env.VITE_SUPABASE_URL || null;
+  const hasKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const urlHost = url ? url.replace(/^https?:\/\//, '').replace(/\..*$/, '') : null; // ex: epkxxiadrevsuopkndej
+  const db = getSupabase();
+  if (!db) {
+    return res.status(503).json({ ok: false, reason: 'env_missing', has_url: !!url, has_service_key: hasKey, project_ref: urlHost });
+  }
+
+  const out: any = { ok: false, project_ref: urlHost, has_service_key: hasKey, read_ok: false, write_ok: false };
+
+  // 1) leitura — falha aqui = chave inválida / URL errada
+  const read = await db.from('n8n_workflows').select('id', { count: 'exact', head: true });
+  if (read.error) {
+    out.error = read.error.message;
+    out.hint = /invalid api key/i.test(read.error.message)
+      ? 'SUPABASE_SERVICE_ROLE_KEY não é válida para este projeto. Confira o ref e use a service_role real.'
+      : 'Falha de leitura no Supabase.';
+    return res.status(502).json(out);
+  }
+  out.read_ok = true;
+
+  // 2) escrita — insere e remove um registro sentinela (prova que a chave grava / ignora RLS)
+  const probe = { execution_id: '__healthcheck__', workflow_id: '__healthcheck__', workflow_name: 'healthcheck', status: 'success' };
+  const w = await db.from('n8n_executions').upsert(probe, { onConflict: 'execution_id' });
+  if (w.error) {
+    out.error = w.error.message;
+    out.hint = /row-level security|rls/i.test(w.error.message)
+      ? 'A chave é válida mas NÃO tem permissão de escrita (provavelmente anon). Use a service_role.'
+      : 'Falha de escrita no Supabase.';
+    return res.status(502).json(out);
+  }
+  await db.from('n8n_executions').delete().eq('execution_id', '__healthcheck__');
+  out.write_ok = true;
+  out.ok = true;
+  res.json(out);
+});
+
 // Extrai os campos canônicos do lead a partir do payload bruto
 function extractLeadFields(payload: Record<string, any>) {
   return {
@@ -338,11 +378,13 @@ type LeadSourceKey = 'framer' | 'rd_pipedrive' | 'webinar';
 const U_SOURCE_LABELS: Record<LeadSourceKey, string> = {
   framer: 'LP Framer', rd_pipedrive: 'RD → Pipedrive', webinar: 'LP Webinar',
 };
-type FunnelStage = 'incompleto' | 'capturado' | 'inscrito' | 'nao_processado' | 'processado_sem_deal' | 'deal_criado';
+type FunnelStage = 'incompleto' | 'capturado' | 'inscrito' | 'nao_processado' | 'processado_sem_deal' | 'deal_criado' | 'deal_ganho' | 'deal_perdido';
 const U_STAGE_LABELS: Record<FunnelStage, string> = {
   incompleto: 'Incompleto', capturado: 'Capturado', inscrito: 'Inscrito',
   nao_processado: 'Não processado', processado_sem_deal: 'Processado (sem deal)', deal_criado: 'Deal criado',
+  deal_ganho: 'Deal ganho', deal_perdido: 'Deal perdido',
 };
+interface PipeStatus { status: string | null; stage_id: number | null; valor: number | null; won_at: string | null; lost_at: string | null; lost_reason: string | null; atualizado_em: string | null; }
 type Health = 'ok' | 'atencao' | 'erro';
 interface UnifiedLead {
   uid: string; source: LeadSourceKey; source_label: string; source_id: number | string;
@@ -351,6 +393,7 @@ interface UnifiedLead {
   status: 'completo' | 'incompleto'; missing: string[]; stage: FunnelStage; stage_label: string; health: Health;
   routing: { rota_definida: string | null; rota_encontrada: boolean | null; destino_pipeline: string | null; destino_stage: string | null; destino_owner: string | null; processado: boolean | null; motivo_rota: string | null } | null;
   pipedrive: { person_id: number | null; deal_id: number | null } | null;
+  pipe: PipeStatus | null;
   is_duplicate: boolean; also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[]; raw: Record<string, any>;
 }
 interface UnifiedFilters {
@@ -366,15 +409,45 @@ const U_SELECT: Record<LeadSourceKey, string> = {
 };
 const U_TABLE: Record<LeadSourceKey, string> = { framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
 
-function uClassify(source: LeadSourceKey, status: 'completo' | 'incompleto', routing: UnifiedLead['routing'], pipedrive: UnifiedLead['pipedrive']): { stage: FunnelStage; health: Health } {
+function uClassify(source: LeadSourceKey, status: 'completo' | 'incompleto', routing: UnifiedLead['routing'], pipedrive: UnifiedLead['pipedrive'], pipe: PipeStatus | null): { stage: FunnelStage; health: Health } {
   if (status === 'incompleto') return { stage: 'incompleto', health: 'atencao' };
   if (source === 'rd_pipedrive') {
-    if (pipedrive?.deal_id) return { stage: 'deal_criado', health: 'ok' };
+    if (pipedrive?.deal_id) {
+      if (pipe?.status === 'won') return { stage: 'deal_ganho', health: 'ok' };
+      if (pipe?.status === 'lost') return { stage: 'deal_perdido', health: 'atencao' };
+      return { stage: 'deal_criado', health: 'ok' };
+    }
     if (routing?.processado === true) return { stage: 'processado_sem_deal', health: 'atencao' };
     return { stage: 'nao_processado', health: 'erro' };
   }
   if (source === 'webinar') return { stage: 'inscrito', health: 'ok' };
   return { stage: 'capturado', health: 'ok' };
+}
+
+// S4: enriquece leads RD→Pipedrive com o status atual do deal (deals_snapshot). Tolerante a falhas.
+async function uEnrichWithPipedrive(db: SupabaseClient, leads: UnifiedLead[]): Promise<void> {
+  const dealIds = Array.from(new Set(leads.map((l) => l.pipedrive?.deal_id).filter((d): d is number => d !== null && d !== undefined)));
+  if (!dealIds.length) return;
+  try {
+    const { data, error } = await db.from('deals_snapshot')
+      .select('deal_id,status,stage_id,value,won_time,lost_time,lost_reason,update_time').in('deal_id', dealIds);
+    if (error || !data) return;
+    const byDeal = new Map<string, any>();
+    for (const d of data) byDeal.set(String(d.deal_id), d);
+    for (const l of leads) {
+      const did = l.pipedrive?.deal_id;
+      if (did === null || did === undefined) continue;
+      const snap = byDeal.get(String(did));
+      if (!snap) continue;
+      l.pipe = {
+        status: snap.status ?? null, stage_id: snap.stage_id ?? null, valor: snap.value ?? null,
+        won_at: snap.won_time ?? null, lost_at: snap.lost_time ?? null, lost_reason: snap.lost_reason ?? null,
+        atualizado_em: snap.update_time ?? null,
+      };
+      const { stage, health } = uClassify(l.source, l.status, l.routing, l.pipedrive, l.pipe);
+      l.stage = stage; l.stage_label = U_STAGE_LABELS[stage]; l.health = health;
+    }
+  } catch { /* deals_snapshot indisponível — segue sem S4 */ }
 }
 
 function uNormalize(source: LeadSourceKey, row: any): UnifiedLead {
@@ -393,13 +466,13 @@ function uNormalize(source: LeadSourceKey, row: any): UnifiedLead {
     };
     pipedrive = { person_id: row.pipedrive_person_id ?? null, deal_id: row.pipedrive_deal_id ?? null };
   }
-  const { stage, health } = uClassify(source, status, routing, pipedrive);
+  const { stage, health } = uClassify(source, status, routing, pipedrive, null);
   return {
     uid: `${source}:${row.id}`, source, source_label: U_SOURCE_LABELS[source], source_id: row.id, ...common,
     created_at: row.criado_em, is_indicacao: !!row.is_indicacao,
     utm_source: row.utm_source ?? null, utm_medium: row.utm_medium ?? null, utm_campaign: row.utm_campaign ?? null,
     status, missing, stage, stage_label: U_STAGE_LABELS[stage], health, routing, pipedrive,
-    is_duplicate: false, also_in: [], raw: row,
+    pipe: null, is_duplicate: false, also_in: [], raw: row,
   };
 }
 
@@ -430,6 +503,7 @@ async function fetchUnifiedLeads(db: SupabaseClient, opts: UnifiedFilters = {}):
     if (error) throw new Error(`${U_TABLE[src]}: ${error.message}`);
     (data || []).forEach((row: any) => all.push(uNormalize(src, row)));
   }));
+  await uEnrichWithPipedrive(db, all);
   uIndexDuplicates(all);
   let filtered = all;
   if (opts.status) filtered = filtered.filter((l) => l.status === opts.status);
@@ -460,7 +534,7 @@ async function fetchUnifiedStats(db: SupabaseClient): Promise<any> {
     return {
       entraram, completos, incompletos: entraram - completos,
       problema: subset.filter((l) => l.health !== 'ok').length,
-      deals: subset.filter((l) => l.stage === 'deal_criado').length,
+      deals: subset.filter((l) => l.stage === 'deal_criado' || l.stage === 'deal_ganho' || l.stage === 'deal_perdido').length,
       taxa_completos: entraram ? Math.round((completos / entraram) * 100) : 0,
     };
   };
@@ -469,14 +543,17 @@ async function fetchUnifiedStats(db: SupabaseClient): Promise<any> {
     return { source: src, source_label: U_SOURCE_LABELS[src], total: subset.length, completos: subset.filter((l) => l.status === 'completo').length, problema: subset.filter((l) => l.health !== 'ok').length };
   });
   const rd = leads.filter((l) => l.source === 'rd_pipedrive');
+  const isDeal = (s: FunnelStage) => s === 'deal_criado' || s === 'deal_ganho' || s === 'deal_perdido';
   return {
     periodos: { h24: mk((l) => ts(l) >= t24), hoje: mk((l) => ts(l) >= tToday), d7: mk((l) => ts(l) >= t7) },
     por_origem,
     funil_rd: {
       capturado: rd.length,
-      processado: rd.filter((l) => l.routing?.processado === true || l.stage === 'deal_criado').length,
-      deal: rd.filter((l) => l.stage === 'deal_criado').length,
+      processado: rd.filter((l) => l.routing?.processado === true || isDeal(l.stage)).length,
+      deal: rd.filter((l) => isDeal(l.stage)).length,
       nao_processado: rd.filter((l) => l.stage === 'nao_processado').length,
+      ganho: rd.filter((l) => l.stage === 'deal_ganho').length,
+      perdido: rd.filter((l) => l.stage === 'deal_perdido').length,
     },
     duplicados: leads.filter((l) => l.is_duplicate).length,
   };

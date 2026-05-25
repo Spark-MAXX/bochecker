@@ -21,6 +21,8 @@ const STAGE_COLORS: Record<FunnelStage, string> = {
   nao_processado: '#ef4444',
   processado_sem_deal: '#f59e0b',
   deal_criado: '#10b981',
+  deal_ganho: '#16a34a',
+  deal_perdido: '#6b7280',
 };
 
 const HEALTH_META: Record<Health, { color: string; icon: React.ReactNode; label: string }> = {
@@ -130,6 +132,8 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
             <option value="nao_processado">Não processado</option>
             <option value="processado_sem_deal">Processado (sem deal)</option>
             <option value="deal_criado">Deal criado</option>
+            <option value="deal_ganho">Deal ganho</option>
+            <option value="deal_perdido">Deal perdido</option>
           </select>
           <Toggle active={problemOnly} onClick={() => setProblemOnly((v) => !v)} color="#ef4444" label="Só problemas" />
           <Toggle active={dupOnly} onClick={() => setDupOnly((v) => !v)} color="#f59e0b" label="Duplicados" />
@@ -307,6 +311,24 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
                                     <Field icon={<Briefcase className="h-3 w-3" />} label="Pessoa Pipedrive" value={lead.pipedrive?.person_id ? String(lead.pipedrive.person_id) : null} />
                                     <Field icon={<Briefcase className="h-3 w-3" />} label="Deal Pipedrive" value={lead.pipedrive?.deal_id ? String(lead.pipedrive.deal_id) : null} />
                                     {lead.routing.motivo_rota && <Field label="Motivo rota" value={lead.routing.motivo_rota} />}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Status atual no Pipedrive (S4 — deals_snapshot) */}
+                              {lead.pipe && (
+                                <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-card)' }}>
+                                  <div className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5" style={{ color: 'var(--text-3)' }}>
+                                    <Briefcase className="h-3 w-3" /> Status no Pipedrive
+                                  </div>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
+                                    <Field label="Situação" value={lead.pipe.status} />
+                                    <Field label="Stage atual (id)" value={lead.pipe.stage_id != null ? String(lead.pipe.stage_id) : null} />
+                                    <Field label="Valor" value={lead.pipe.valor != null ? String(lead.pipe.valor) : null} />
+                                    <Field label="Atualizado em" value={lead.pipe.atualizado_em} />
+                                    {lead.pipe.won_at && <Field label="Ganho em" value={lead.pipe.won_at} />}
+                                    {lead.pipe.lost_at && <Field label="Perdido em" value={lead.pipe.lost_at} />}
+                                    {lead.pipe.lost_reason && <Field label="Motivo da perda" value={lead.pipe.lost_reason} />}
                                   </div>
                                 </div>
                               )}
