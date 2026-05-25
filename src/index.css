@@ -101,3 +101,19 @@ body {
 *, *::before, *::after {
   transition: background-color 0.25s ease, border-color 0.25s ease, color 0.2s ease;
 }
+
+/* ── Dense-analytics scrollbar ────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--text-4); }
+
+/* Números tabulares para alinhar métricas densas */
+.font-mono { font-variant-numeric: tabular-nums; }
