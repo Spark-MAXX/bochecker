@@ -477,17 +477,27 @@ function uNormalize(source: LeadSourceKey, row: any): UnifiedLead {
 }
 
 function uIndexDuplicates(leads: UnifiedLead[]): void {
+  // duplicado = mesmo email repetido NA MESMA base; bases diferentes não contam como duplicado
   const byEmail = new Map<string, UnifiedLead[]>();
+  const bySourceEmail = new Map<string, UnifiedLead[]>();
   for (const l of leads) {
-    const key = (l.email || '').trim().toLowerCase();
-    if (!key) continue;
-    const arr = byEmail.get(key) || []; arr.push(l); byEmail.set(key, arr);
+    const email = (l.email || '').trim().toLowerCase();
+    if (!email) continue;
+    let arr = byEmail.get(email); if (!arr) { arr = []; byEmail.set(email, arr); } arr.push(l);
+    const sk = `${l.source}::${email}`;
+    let sarr = bySourceEmail.get(sk); if (!sarr) { sarr = []; bySourceEmail.set(sk, sarr); } sarr.push(l);
+  }
+  for (const group of bySourceEmail.values()) {
+    if (group.length < 2) continue;
+    for (const l of group) l.is_duplicate = true;
   }
   for (const group of byEmail.values()) {
     if (group.length < 2) continue;
     for (const l of group) {
-      l.is_duplicate = true;
-      l.also_in = group.filter((o) => o.uid !== l.uid).map((o) => ({ source: o.source, stage: o.stage, deal_id: o.pipedrive?.deal_id ?? null }));
+      const seen = new Set<string>();
+      l.also_in = group.filter((o) => o.source !== l.source)
+        .map((o) => ({ source: o.source, stage: o.stage, deal_id: o.pipedrive?.deal_id ?? null }))
+        .filter((v) => { const k = `${v.source}:${v.deal_id}`; if (seen.has(k)) return false; seen.add(k); return true; });
     }
   }
 }
@@ -589,6 +599,24 @@ app.get('/api/leads/unified-stats', async (_req, res) => {
   try {
     res.json(await fetchUnifiedStats(db));
   } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/funnel/delete — limpeza de leads das bases (Framer / RD→Pipedrive / Webinar).
+// Protegido pelo X-Webhook-Secret. Body: { items: [{ source, id }] }
+app.post('/api/funnel/delete', webhookAuth, async (req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  const items: { source: LeadSourceKey; id: number | string }[] = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (!items.length) return res.status(400).json({ error: 'items vazio' });
+  let deleted = 0; const errors: string[] = [];
+  for (const it of items) {
+    const table = U_TABLE[it.source];
+    if (!table || it.id === undefined || it.id === null) { errors.push(`item inválido: ${JSON.stringify(it)}`); continue; }
+    const { error } = await db.from(table).delete().eq('id', it.id);
+    if (error) errors.push(`${it.source}:${it.id} → ${error.message}`);
+    else deleted++;
+  }
+  res.json({ deleted, errors });
 });
 
 app.post('/api/alerts/lead-incompleto', webhookAuth, async (req, res) => {
