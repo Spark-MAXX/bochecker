@@ -49,6 +49,10 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
 
   const [sourceFilter, setSourceFilter] = useState<'' | LeadSourceKey>('');
   const [stageFilter, setStageFilter] = useState<'' | FunnelStage>('');
+  const [statusFilter, setStatusFilter] = useState<'' | 'completo' | 'incompleto'>('');
+  const [healthFilter, setHealthFilter] = useState<'' | Health>('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [problemOnly, setProblemOnly] = useState(false);
   const [dupOnly, setDupOnly] = useState(false);
   const [search, setSearch] = useState('');
@@ -71,10 +75,14 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
       const qs = new URLSearchParams();
       if (sourceFilter) qs.append('source', sourceFilter);
       if (stageFilter) qs.append('stage', stageFilter);
+      if (statusFilter) qs.append('status', statusFilter);
+      if (healthFilter) qs.append('health', healthFilter);
       if (problemOnly) qs.append('problem', '1');
       if (dupOnly) qs.append('dup', '1');
       if (debouncedSearch) qs.append('search', debouncedSearch);
-      qs.append('limit', '300');
+      if (fromDate) qs.append('from', new Date(fromDate + 'T00:00:00').toISOString());
+      if (toDate) qs.append('to', new Date(toDate + 'T23:59:59').toISOString());
+      qs.append('limit', '500');
 
       const [leadsRes, statsRes] = await Promise.all([
         fetch(`/api/leads/unified?${qs.toString()}`),
@@ -87,23 +95,41 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
       setStats(statsJson);
     } catch (e) { console.error('FunnelMonitor fetch error', e); }
     finally { setLoading(false); }
-  }, [sourceFilter, stageFilter, problemOnly, dupOnly, debouncedSearch]);
+  }, [sourceFilter, stageFilter, statusFilter, healthFilter, problemOnly, dupOnly, debouncedSearch, fromDate, toDate]);
 
   useEffect(() => { fetchData(); }, [fetchData, refreshKey]);
 
-  const toggleSelecting = () => {
-    if (selecting) { setSelecting(false); setSelected(new Set()); return; }
+  const ensureSecret = (): string | null => {
     let s = adminSecret;
     if (!s) {
-      s = (window.prompt('Senha de limpeza (o mesmo valor de WEBHOOK_SECRET):') || '').trim();
-      if (!s) return;
+      s = (window.prompt('Senha de admin (o mesmo valor de WEBHOOK_SECRET):') || '').trim();
+      if (!s) return null;
       setAdminSecret(s); localStorage.setItem('spark-admin-secret', s);
     }
+    return s;
+  };
+  const clearSecret = () => { localStorage.removeItem('spark-admin-secret'); setAdminSecret(''); };
+
+  const toggleSelecting = () => {
+    if (selecting) { setSelecting(false); setSelected(new Set()); return; }
+    if (!ensureSecret()) return;
     setExpanded(null); setSelecting(true);
   };
 
   const toggleRow = (uid: string) => {
     setSelected((prev) => { const n = new Set(prev); n.has(uid) ? n.delete(uid) : n.add(uid); return n; });
+  };
+
+  const postAdmin = async (path: string, body: any): Promise<{ ok: boolean; json: any }> => {
+    const s = ensureSecret(); if (!s) return { ok: false, json: null };
+    const res = await fetch(path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': s }, body: JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.status === 401) { alert('Senha incorreta. Informe novamente.'); clearSecret(); return { ok: false, json }; }
+    if (res.status === 501) { alert(json.error || 'Recurso não configurado.'); return { ok: false, json }; }
+    if (!res.ok) { alert('Erro: ' + (json.error || res.status)); return { ok: false, json }; }
+    return { ok: true, json };
   };
 
   const deleteSelected = async () => {
@@ -112,21 +138,31 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
     if (!window.confirm(`Excluir ${items.length} lead(s) das bases? Ação permanente.`)) return;
     setDeleting(true);
     try {
-      const res = await fetch('/api/funnel/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': adminSecret },
-        body: JSON.stringify({ items }),
-      });
-      if (res.status === 401) {
-        alert('Senha incorreta. Reabra a Limpeza e informe novamente.');
-        localStorage.removeItem('spark-admin-secret'); setAdminSecret(''); setSelecting(false); setSelected(new Set());
-        return;
-      }
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) { alert('Erro ao excluir: ' + (json.error || res.status)); return; }
-      setSelected(new Set()); setSelecting(false);
-      fetchData();
+      const { ok } = await postAdmin('/api/funnel/delete', { items });
+      if (ok) { setSelected(new Set()); setSelecting(false); fetchData(); }
     } finally { setDeleting(false); }
+  };
+
+  const deleteOne = async (lead: UnifiedLead) => {
+    if (!window.confirm(`Excluir "${lead.nome || lead.email || lead.uid}" da base ${lead.source_label}? Permanente.`)) return;
+    const { ok } = await postAdmin('/api/funnel/delete', { items: [{ source: lead.source, id: lead.source_id }] });
+    if (ok) fetchData();
+  };
+
+  const reprocessOne = async (lead: UnifiedLead) => {
+    if (!window.confirm(`Reprocessar "${lead.nome || lead.email || lead.uid}" pelo fluxo de ${lead.source_label}?`)) return;
+    const { ok } = await postAdmin('/api/funnel/reprocess', { source: lead.source, id: lead.source_id });
+    if (ok) alert('Lead reenviado ao fluxo do n8n.');
+  };
+
+  const applyPreset = (preset: 'hoje' | '7d' | '30d' | 'tudo') => {
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    if (preset === 'tudo') { setFromDate('2020-01-01'); setToDate(''); return; }
+    const now = new Date();
+    const from = new Date();
+    if (preset === 'hoje') from.setHours(0, 0, 0, 0);
+    else from.setTime(Date.now() - (preset === '7d' ? 7 : 30) * 86400000);
+    setFromDate(fmt(from)); setToDate(fmt(now));
   };
 
   const p = stats?.periodos[period];
@@ -193,6 +229,43 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
             <Trash2 className="h-3 w-3" /> {selecting ? 'Cancelar' : 'Limpeza'}
           </button>
         </div>
+      </div>
+
+      {/* Filtros avançados: período, status, saúde */}
+      <div className="px-4 py-2 border-b flex flex-wrap items-center gap-2"
+        style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-light)' }}>
+        <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: 'var(--text-4)' }}>Período:</span>
+        {(['hoje', '7d', '30d', 'tudo'] as const).map((pp) => (
+          <button key={pp} onClick={() => applyPreset(pp)}
+            className="text-[10px] font-mono uppercase px-2 py-0.5 rounded border transition-colors"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-3)', background: 'transparent' }}>{pp}</button>
+        ))}
+        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} aria-label="De"
+          className="text-[10px] font-mono rounded border px-2 py-0.5 outline-none focus:ring-1 focus:ring-cyan-500"
+          style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)', colorScheme: 'dark light' as any }} />
+        <span className="text-[10px]" style={{ color: 'var(--text-4)' }}>→</span>
+        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} aria-label="Até"
+          className="text-[10px] font-mono rounded border px-2 py-0.5 outline-none focus:ring-1 focus:ring-cyan-500"
+          style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)', colorScheme: 'dark light' as any }} />
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}
+          className="border rounded px-2 py-0.5 text-[10px] font-bold uppercase outline-none cursor-pointer"
+          style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)' }}>
+          <option value="">Status: todos</option>
+          <option value="completo">Completos</option>
+          <option value="incompleto">Incompletos</option>
+        </select>
+        <select value={healthFilter} onChange={(e) => setHealthFilter(e.target.value as any)}
+          className="border rounded px-2 py-0.5 text-[10px] font-bold uppercase outline-none cursor-pointer"
+          style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)' }}>
+          <option value="">Saúde: toda</option>
+          <option value="ok">OK</option>
+          <option value="atencao">Atenção</option>
+          <option value="erro">Problema</option>
+        </select>
+        {(fromDate || toDate || statusFilter || healthFilter) && (
+          <button onClick={() => { setFromDate(''); setToDate(''); setStatusFilter(''); setHealthFilter(''); }}
+            className="text-[10px] font-mono uppercase px-2 py-0.5" style={{ color: 'var(--crimson)' }}>limpar filtros</button>
+        )}
       </div>
 
       {selecting && (
@@ -416,6 +489,20 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
                                   <span>UTM: {lead.utm_source || '—'} / {lead.utm_medium || '—'} / {lead.utm_campaign || '—'}</span>
                                 )}
                                 <span>ID: {String(lead.source_id)}</span>
+                              </div>
+
+                              {/* Ações por lead */}
+                              <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-light)' }}>
+                                <button onClick={(e) => { e.stopPropagation(); reprocessOne(lead); }}
+                                  className="flex items-center gap-1.5 text-[10px] font-mono uppercase px-2.5 py-1 rounded border"
+                                  style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }} title="Reenvia o lead ao fluxo do n8n">
+                                  <RefreshCcw className="h-3 w-3" /> Reprocessar no fluxo
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); deleteOne(lead); }}
+                                  className="flex items-center gap-1.5 text-[10px] font-mono uppercase px-2.5 py-1 rounded border"
+                                  style={{ borderColor: 'rgba(224,131,105,0.5)', color: 'var(--crimson)' }} title="Exclui este lead da base">
+                                  <Trash2 className="h-3 w-3" /> Excluir lead
+                                </button>
                               </div>
                             </motion.div>
                           </td>

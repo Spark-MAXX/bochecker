@@ -618,6 +618,26 @@ async function startServer() {
     res.json({ deleted, errors });
   });
 
+  // POST /api/funnel/reprocess — reenvia o lead ao fluxo do n8n (webhook configurável)
+  app.post('/api/funnel/reprocess', webhookAuth, async (req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    const url = process.env.N8N_REPROCESS_WEBHOOK_URL;
+    if (!url) return res.status(501).json({ error: 'N8N_REPROCESS_WEBHOOK_URL não configurado' });
+    const TBL: Record<string, string> = { framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
+    const { source, id } = (req.body || {}) as { source: string; id: number | string };
+    const table = TBL[source];
+    if (!table || id === undefined || id === null) return res.status(400).json({ error: 'source/id inválidos' });
+    const { data: row, error } = await db.from(table).select('*').eq('id', id).maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!row) return res.status(404).json({ error: 'lead não encontrado' });
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source, lead: row, reprocess: true }) });
+      if (!r.ok) return res.status(502).json({ error: `n8n respondeu ${r.status}` });
+      res.json({ ok: true });
+    } catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+
   // GET /api/leads/stats — contadores agregados
   app.get('/api/leads/stats', async (req, res) => {
     const supabaseAdmin = getSupabaseAdmin();

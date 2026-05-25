@@ -619,6 +619,26 @@ app.post('/api/funnel/delete', webhookAuth, async (req, res) => {
   res.json({ deleted, errors });
 });
 
+// POST /api/funnel/reprocess — reenvia o lead para o fluxo do n8n (webhook configurável).
+// Protegido por X-Webhook-Secret. Body: { source, id }
+app.post('/api/funnel/reprocess', webhookAuth, async (req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  const url = process.env.N8N_REPROCESS_WEBHOOK_URL;
+  if (!url) return res.status(501).json({ error: 'N8N_REPROCESS_WEBHOOK_URL não configurado na Vercel' });
+  const { source, id } = (req.body || {}) as { source: LeadSourceKey; id: number | string };
+  const table = U_TABLE[source];
+  if (!table || id === undefined || id === null) return res.status(400).json({ error: 'source/id inválidos' });
+  const { data: row, error } = await db.from(table).select('*').eq('id', id).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!row) return res.status(404).json({ error: 'lead não encontrado' });
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source, lead: row, reprocess: true }) });
+    if (!r.ok) return res.status(502).json({ error: `n8n respondeu ${r.status}` });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(502).json({ error: e.message }); }
+});
+
 app.post('/api/alerts/lead-incompleto', webhookAuth, async (req, res) => {
   const db = getSupabase();
   if (!db) return res.status(503).json({ error: 'Database unavailable' });
