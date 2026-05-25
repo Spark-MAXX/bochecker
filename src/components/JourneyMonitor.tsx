@@ -103,8 +103,8 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
   const dedupeBase = async (j: JourneyLead, source: string) => {
     if (!j.email) return;
     if (!window.confirm(`Manter só o mais recente de ${j.email} em ${source}?`)) return;
-    const { ok } = await postAdmin('/api/funnel/dedupe', { source, email: j.email });
-    if (ok) fetchData();
+    const { ok, json } = await postAdmin('/api/funnel/dedupe', { source, email: j.email });
+    if (ok) { alert(`✓ Mantido o registro mais recente em ${source}. ${json?.removed ?? 0} cópia(s) antiga(s) removida(s). O lead NÃO foi apagado — só deixou de ser duplicado (some da visão "Duplicados", continua na lista normal).`); fetchData(); }
   };
 
   const loadDuplicates = async () => {
@@ -114,7 +114,7 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
   };
   const openDup = () => { const nx = !dupOpen; setDupOpen(nx); if (nx) loadDuplicates(); };
   const dedupeGroup = async (g: any) => {
-    if (!window.confirm(`Manter só o mais recente de "${g.key}" em ${g.source_label}? Remove ${g.remove_ids.length}.`)) return;
+    if (!window.confirm(`Manter só o mais recente de "${g.key}" em ${g.source_label}? Remove ${g.remove_ids.length} cópia(s) antiga(s) (o lead continua na base).`)) return;
     const { ok } = await postAdmin('/api/funnel/dedupe', { source: g.source, email: g.key });
     if (ok) { loadDuplicates(); fetchData(); }
   };
