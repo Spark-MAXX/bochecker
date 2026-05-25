@@ -9,6 +9,7 @@ import { sendDiscordAlert } from './src/lib/discord.ts';
 import { LeadIncompletoSchema, ErroTecnicoSchema } from './src/lib/schemas.ts';
 import { validateLeadFields, LEAD_SOURCE_LABELS, type LeadSource } from './src/lib/validation-config.ts';
 import { fetchUnifiedLeads, fetchUnifiedStats, type UnifiedFilters } from './src/lib/leads-unified.ts';
+import { fetchDuplicates, dedupe, type DupSource } from './src/lib/dedupe.ts';
 
 const logger = pino({
   transport: {
@@ -636,6 +637,26 @@ async function startServer() {
       if (!r.ok) return res.status(502).json({ error: `n8n respondeu ${r.status}` });
       res.json({ ok: true });
     } catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+
+  // GET /api/funnel/duplicates — grupos de duplicados por base
+  app.get('/api/funnel/duplicates', async (req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    try {
+      const groups = await fetchDuplicates(db, { source: req.query.source as DupSource, email: req.query.email as string });
+      res.json({ groups, total_groups: groups.length, total_extra: groups.reduce((s, g) => s + g.remove_ids.length, 0) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/funnel/dedupe — mantém o mais recente, remove as cópias antigas (gated)
+  app.post('/api/funnel/dedupe', webhookAuth, async (req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    const { source, email, dryRun } = req.body || {};
+    try {
+      res.json(await dedupe(db, { source, email, dryRun }));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // GET /api/leads/stats — contadores agregados

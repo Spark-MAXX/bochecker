@@ -129,6 +129,7 @@ export interface UnifiedLead {
   pipedrive: { person_id: number | null; deal_id: number | null } | null;
   pipe: PipeStatus | null;
   is_duplicate: boolean;
+  dup_count?: number;
   also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[];
   raw: Record<string, any>;
 }

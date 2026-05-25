@@ -81,6 +81,7 @@ export interface UnifiedLead {
   pipedrive: { person_id: number | null; deal_id: number | null } | null;
   pipe: PipeStatus | null;
   is_duplicate: boolean;
+  dup_count?: number;
   also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[];
   raw: Record<string, any>;
 }
@@ -268,7 +269,7 @@ function indexDuplicates(leads: UnifiedLead[]): void {
   // Duplicado real: mesmo email > 1x na mesma base
   for (const group of bySourceEmail.values()) {
     if (group.length < 2) continue;
-    for (const l of group) l.is_duplicate = true;
+    for (const l of group) { l.is_duplicate = true; l.dup_count = group.length; }
   }
   // Informativo: mesmo email presente em OUTRAS bases (não conta como duplicado)
   for (const group of byEmail.values()) {

@@ -63,6 +63,9 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
+  const [dupGroups, setDupGroups] = useState<any[]>([]);
+  const [dupLoading, setDupLoading] = useState(false);
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(search.trim()), 350);
@@ -155,6 +158,41 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
     if (ok) alert('Lead reenviado ao fluxo do n8n.');
   };
 
+  const loadDuplicates = async () => {
+    setDupLoading(true);
+    try {
+      const res = await fetch('/api/funnel/duplicates');
+      const json = res.ok ? await res.json() : { groups: [] };
+      setDupGroups(json.groups || []);
+    } catch { /* noop */ } finally { setDupLoading(false); }
+  };
+  const openDup = () => { const next = !dupOpen; setDupOpen(next); if (next) loadDuplicates(); };
+
+  const dedupeGroup = async (g: any) => {
+    if (!window.confirm(`Manter só o mais recente de "${g.key}" em ${g.source_label}? Remove ${g.remove_ids.length} cópia(s) antiga(s).`)) return;
+    const { ok } = await postAdmin('/api/funnel/dedupe', { source: g.source, email: g.key });
+    if (ok) { loadDuplicates(); fetchData(); }
+  };
+
+  const dedupeAll = async () => {
+    const s = ensureSecret(); if (!s) return;
+    const pre = await fetch('/api/funnel/dedupe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': s }, body: JSON.stringify({ dryRun: true }) });
+    const preJson = await pre.json().catch(() => ({}));
+    if (pre.status === 401) { alert('Senha incorreta.'); clearSecret(); return; }
+    if (!pre.ok) { alert('Erro: ' + (preJson.error || pre.status)); return; }
+    if (!preJson.toRemove) { alert('Nenhum duplicado para limpar.'); return; }
+    if (!window.confirm(`Remover ${preJson.toRemove} cópia(s) antiga(s) de ${preJson.groups} grupo(s), mantendo o mais recente de cada?`)) return;
+    const { ok } = await postAdmin('/api/funnel/dedupe', {});
+    if (ok) { loadDuplicates(); fetchData(); }
+  };
+
+  const keepRecentForLead = async (lead: UnifiedLead) => {
+    if (!lead.email) return;
+    if (!window.confirm(`Manter só o lead mais recente de ${lead.email} em ${lead.source_label}?`)) return;
+    const { ok } = await postAdmin('/api/funnel/dedupe', { source: lead.source, email: lead.email });
+    if (ok) fetchData();
+  };
+
   const applyPreset = (preset: 'hoje' | '7d' | '30d' | 'tudo') => {
     const fmt = (d: Date) => d.toISOString().slice(0, 10);
     if (preset === 'tudo') { setFromDate('2020-01-01'); setToDate(''); return; }
@@ -223,6 +261,11 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
             style={{ color: 'var(--text-3)' }}>
             <RefreshCcw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} /> SYNC
           </button>
+          <button onClick={openDup}
+            className="flex items-center gap-1.5 text-[10px] font-mono uppercase px-2 py-1"
+            style={{ color: dupOpen ? 'var(--amber)' : 'var(--text-3)' }} title="Gerenciar duplicados por base">
+            <Copy className="h-3 w-3" /> Duplicados
+          </button>
           <button onClick={toggleSelecting}
             className="flex items-center gap-1.5 text-[10px] font-mono uppercase px-2 py-1"
             style={{ color: selecting ? 'var(--crimson)' : 'var(--text-3)' }} title="Limpar leads das bases">
@@ -230,6 +273,45 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
           </button>
         </div>
       </div>
+
+      {dupOpen && (
+        <div className="border-b" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-muted)' }}>
+          <div className="px-4 py-2 flex items-center justify-between">
+            <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>
+              Duplicados por base {dupGroups.length > 0 && `· ${dupGroups.length} grupo(s)`}
+            </span>
+            <div className="flex items-center gap-2">
+              <button onClick={loadDuplicates} className="text-[10px] font-mono uppercase px-2 py-0.5" style={{ color: 'var(--text-3)' }}>
+                <RefreshCcw className={`h-3 w-3 inline ${dupLoading ? 'animate-spin' : ''}`} /> recarregar
+              </button>
+              {dupGroups.length > 0 && (
+                <button onClick={dedupeAll} className="text-[10px] font-mono uppercase px-3 py-1 rounded" style={{ background: 'var(--amber)', color: '#1A1814' }}>
+                  Limpar todos (manter recente)
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto px-4 pb-3 space-y-1">
+            {dupLoading && dupGroups.length === 0 && <div className="text-[10px] font-mono py-2" style={{ color: 'var(--text-4)' }}>Procurando duplicados…</div>}
+            {!dupLoading && dupGroups.length === 0 && <div className="text-[10px] font-mono py-2" style={{ color: 'var(--olive)' }}>✓ Nenhum duplicado por base.</div>}
+            {dupGroups.map((g, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 py-1.5 px-2 rounded" style={{ backgroundColor: 'var(--bg-card)' }}>
+                <div className="min-w-0">
+                  <span className="text-[11px] font-mono" style={{ color: 'var(--text-1)' }}>{g.key}</span>
+                  <span className="ml-2 text-[10px] font-mono" style={{ color: 'var(--text-3)' }}>{g.source_label}</span>
+                  <span className="ml-2 text-[10px] font-bold" style={{ color: 'var(--crimson)' }}>{g.count}×</span>
+                  <span className="ml-2 text-[9px] font-mono" style={{ color: 'var(--text-4)' }}>
+                    mantém {g.copies?.[0]?.criado_em ? format(new Date(g.copies[0].criado_em), 'dd/MM HH:mm') : '—'} · remove {g.remove_ids.length}
+                  </span>
+                </div>
+                <button onClick={() => dedupeGroup(g)} className="shrink-0 text-[10px] font-mono uppercase px-2 py-0.5 rounded border" style={{ borderColor: 'var(--border)', color: 'var(--amber)' }}>
+                  manter recente
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filtros avançados: período, status, saúde */}
       <div className="px-4 py-2 border-b flex flex-wrap items-center gap-2"
@@ -491,13 +573,27 @@ export default function FunnelMonitor({ refreshKey = 0 }: { refreshKey?: number 
                                 <span>ID: {String(lead.source_id)}</span>
                               </div>
 
+                              {lead.is_duplicate && (lead.dup_count ?? 0) > 1 && (
+                                <div className="flex items-center gap-2 text-[10px] font-mono" style={{ color: '#f59e0b' }}>
+                                  <Copy className="h-3 w-3" />
+                                  Este email aparece <b>{lead.dup_count}×</b> em {lead.source_label} (mesma base).
+                                </div>
+                              )}
+
                               {/* Ações por lead */}
-                              <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-light)' }}>
+                              <div className="flex items-center gap-2 pt-2 border-t flex-wrap" style={{ borderColor: 'var(--border-light)' }}>
                                 <button onClick={(e) => { e.stopPropagation(); reprocessOne(lead); }}
                                   className="flex items-center gap-1.5 text-[10px] font-mono uppercase px-2.5 py-1 rounded border"
                                   style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }} title="Reenvia o lead ao fluxo do n8n">
                                   <RefreshCcw className="h-3 w-3" /> Reprocessar no fluxo
                                 </button>
+                                {lead.is_duplicate && (lead.dup_count ?? 0) > 1 && (
+                                  <button onClick={(e) => { e.stopPropagation(); keepRecentForLead(lead); }}
+                                    className="flex items-center gap-1.5 text-[10px] font-mono uppercase px-2.5 py-1 rounded border"
+                                    style={{ borderColor: 'rgba(212,149,85,0.5)', color: 'var(--amber)' }} title="Mantém só o registro mais recente nesta base">
+                                    <Copy className="h-3 w-3" /> Manter só o mais recente
+                                  </button>
+                                )}
                                 <button onClick={(e) => { e.stopPropagation(); deleteOne(lead); }}
                                   className="flex items-center gap-1.5 text-[10px] font-mono uppercase px-2.5 py-1 rounded border"
                                   style={{ borderColor: 'rgba(224,131,105,0.5)', color: 'var(--crimson)' }} title="Exclui este lead da base">

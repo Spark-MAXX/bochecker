@@ -394,7 +394,7 @@ interface UnifiedLead {
   routing: { rota_definida: string | null; rota_encontrada: boolean | null; destino_pipeline: string | null; destino_stage: string | null; destino_owner: string | null; processado: boolean | null; motivo_rota: string | null } | null;
   pipedrive: { person_id: number | null; deal_id: number | null } | null;
   pipe: PipeStatus | null;
-  is_duplicate: boolean; also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[]; raw: Record<string, any>;
+  is_duplicate: boolean; dup_count?: number; also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[]; raw: Record<string, any>;
 }
 interface UnifiedFilters {
   source?: LeadSourceKey; status?: 'completo' | 'incompleto'; stage?: FunnelStage; health?: Health;
@@ -489,7 +489,7 @@ function uIndexDuplicates(leads: UnifiedLead[]): void {
   }
   for (const group of bySourceEmail.values()) {
     if (group.length < 2) continue;
-    for (const l of group) l.is_duplicate = true;
+    for (const l of group) { l.is_duplicate = true; l.dup_count = group.length; }
   }
   for (const group of byEmail.values()) {
     if (group.length < 2) continue;
@@ -637,6 +637,64 @@ app.post('/api/funnel/reprocess', webhookAuth, async (req, res) => {
     if (!r.ok) return res.status(502).json({ error: `n8n respondeu ${r.status}` });
     res.json({ ok: true });
   } catch (e: any) { res.status(502).json({ error: e.message }); }
+});
+
+// ── Duplicados por base (mesmo email repetido na mesma base) ─────────────────
+const DUP_SRC: Record<string, { table: string; email: string; nome: string; label: string }> = {
+  framer:       { table: 'leads_framer',       email: 'email',      nome: 'nome',      label: 'LP Framer' },
+  rd_pipedrive: { table: 'leads_rd_pipedrive', email: 'lead_email', nome: 'lead_nome', label: 'RD → Pipedrive' },
+  webinar:      { table: 'leads_webinar',      email: 'email',      nome: 'nome',      label: 'LP Webinar' },
+};
+const dupNorm = (e: any) => (e ?? '').toString().trim().toLowerCase();
+
+async function uFetchDuplicates(db: SupabaseClient, opts: { source?: string; email?: string } = {}) {
+  const sources = opts.source ? [opts.source] : Object.keys(DUP_SRC);
+  const wanted = opts.email ? dupNorm(opts.email) : null;
+  const groups: any[] = [];
+  for (const src of sources) {
+    const c = DUP_SRC[src]; if (!c) continue;
+    const { data, error } = await db.from(c.table).select(`id,criado_em,${c.email},${c.nome}`).limit(20000);
+    if (error || !data) continue;
+    const byKey = new Map<string, any[]>();
+    for (const row of data as any[]) {
+      const key = dupNorm(row[c.email]); if (!key || (wanted && key !== wanted)) continue;
+      const copy = { id: row.id, criado_em: row.criado_em ?? null, nome: row[c.nome] ?? null, email: row[c.email] ?? null };
+      let arr = byKey.get(key); if (!arr) { arr = []; byKey.set(key, arr); } arr.push(copy);
+    }
+    for (const [key, copies] of byKey) {
+      if (copies.length < 2) continue;
+      const sorted = [...copies].sort((a, b) => (b.criado_em || '').localeCompare(a.criado_em || ''));
+      groups.push({ source: src, source_label: c.label, key, count: copies.length, copies: sorted, keep_id: sorted[0].id, remove_ids: sorted.slice(1).map((x) => x.id) });
+    }
+  }
+  groups.sort((a, b) => b.count - a.count);
+  return groups;
+}
+
+app.get('/api/funnel/duplicates', async (req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    const groups = await uFetchDuplicates(db, { source: req.query.source as string, email: req.query.email as string });
+    res.json({ groups, total_groups: groups.length, total_extra: groups.reduce((s, g) => s + g.remove_ids.length, 0) });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/funnel/dedupe', webhookAuth, async (req, res) => {
+  const db = getSupabase();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  const { source, email, dryRun } = (req.body || {}) as { source?: string; email?: string; dryRun?: boolean };
+  try {
+    const groups = await uFetchDuplicates(db, { source, email });
+    const items = groups.flatMap((g) => g.remove_ids.map((id: any) => ({ source: g.source, id })));
+    if (dryRun) return res.json({ groups: groups.length, toRemove: items.length, removed: 0, dryRun: true });
+    let removed = 0; const errors: string[] = [];
+    for (const it of items) {
+      const { error } = await db.from(DUP_SRC[it.source].table).delete().eq('id', it.id);
+      if (error) errors.push(`${it.source}:${it.id} → ${error.message}`); else removed++;
+    }
+    res.json({ groups: groups.length, toRemove: items.length, removed, dryRun: false, errors });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/alerts/lead-incompleto', webhookAuth, async (req, res) => {
