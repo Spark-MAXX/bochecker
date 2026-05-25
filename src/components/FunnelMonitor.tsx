@@ -8,27 +8,28 @@ import {
 } from 'lucide-react';
 import type { UnifiedLead, FunnelStats, LeadSourceKey, FunnelStage, Health } from '../lib/schemas';
 
+// Paleta terrosa (warm) — alinhada ao tema editorial
 const SOURCE_COLORS: Record<string, string> = {
-  framer: '#06b6d4',
-  rd_pipedrive: '#ec4899',
-  webinar: '#8b5cf6',
+  framer: '#7CA5DA',        // navy
+  rd_pipedrive: '#E08369',  // crimson
+  webinar: '#BD8AA8',       // plum
 };
 
 const STAGE_COLORS: Record<FunnelStage, string> = {
-  incompleto: '#f59e0b',
-  capturado: '#06b6d4',
-  inscrito: '#8b5cf6',
-  nao_processado: '#ef4444',
-  processado_sem_deal: '#f59e0b',
-  deal_criado: '#10b981',
-  deal_ganho: '#16a34a',
-  deal_perdido: '#6b7280',
+  incompleto: '#D49555',          // amber
+  capturado: '#7CA5DA',           // navy
+  inscrito: '#BD8AA8',            // plum
+  nao_processado: '#E08369',      // crimson
+  processado_sem_deal: '#D49555', // amber
+  deal_criado: '#A8B782',         // olive
+  deal_ganho: '#A8B782',          // olive
+  deal_perdido: '#9B9690',        // mute
 };
 
 const HEALTH_META: Record<Health, { color: string; icon: React.ReactNode; label: string }> = {
-  ok:      { color: '#10b981', icon: <CheckCircle2 className="h-2.5 w-2.5" />, label: 'OK' },
-  atencao: { color: '#f59e0b', icon: <AlertTriangle className="h-2.5 w-2.5" />, label: 'Atenção' },
-  erro:    { color: '#ef4444', icon: <XCircle className="h-2.5 w-2.5" />, label: 'Problema' },
+  ok:      { color: '#A8B782', icon: <CheckCircle2 className="h-2.5 w-2.5" />, label: 'OK' },
+  atencao: { color: '#D49555', icon: <AlertTriangle className="h-2.5 w-2.5" />, label: 'Atenção' },
+  erro:    { color: '#E08369', icon: <XCircle className="h-2.5 w-2.5" />, label: 'Problema' },
 };
 
 const n8nBase = 'https://growthsparkmaxx.app.n8n.cloud';

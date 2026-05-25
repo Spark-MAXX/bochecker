@@ -113,17 +113,17 @@ export default function App() {
         openAlerts={stats.openCount}
       />
 
-      <div className="ml-[208px] min-h-screen flex flex-col">
+      <div className="ml-[224px] min-h-screen flex flex-col">
         {/* Topbar */}
-        <header className="h-14 border-b sticky top-0 z-30 backdrop-blur-md flex items-center justify-between px-5 shrink-0"
-          style={{ backgroundColor: 'var(--bg-nav)', borderColor: 'var(--border)' }}>
+        <header className="h-16 border-b sticky top-0 z-30 backdrop-blur-md flex items-center justify-between px-6 shrink-0"
+          style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--rule)' }}>
           <div>
-            <h2 className="text-[15px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>{meta.title}</h2>
-            <p className="text-[10px] font-mono" style={{ color: 'var(--text-3)' }}>{meta.subtitle}</p>
+            <h2 className="font-display" style={{ fontSize: 21, fontWeight: 500, color: 'var(--ink)', letterSpacing: '-0.01em', lineHeight: 1.1 }}>{meta.title}</h2>
+            <p className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--ink-mute)' }}>{meta.subtitle}</p>
           </div>
-          <div className="flex items-center gap-2 text-[10px] font-mono" style={{ color: 'var(--text-4)' }}>
-            <span className="hidden md:inline">n8n + Supabase</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          <div className="flex items-center gap-2 font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--ink-faint)' }}>
+            <span className="hidden md:inline">n8n · Supabase · Pipedrive</span>
+            <span style={{ width: 6, height: 6, background: 'var(--crimson)', display: 'inline-block' }} />
           </div>
         </header>
 
@@ -145,15 +145,15 @@ export default function App() {
           )}
 
           {page === 'alertas' && (
-            <div className="rounded-xl border overflow-hidden" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+            <div className="border overflow-hidden" style={{ backgroundColor: 'var(--bg-paper)', borderColor: 'var(--rule)' }}>
               <div className="p-3 border-b flex flex-wrap gap-3 justify-between items-center"
-                style={{ backgroundColor: 'var(--bg-muted)', borderColor: 'var(--border)' }}>
+                style={{ backgroundColor: 'var(--bg-soft)', borderColor: 'var(--rule)' }}>
                 <div className="flex items-center gap-2.5">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400" />
-                  <h3 className="text-[11px] font-semibold tracking-[0.12em] uppercase" style={{ color: 'var(--text-2)' }}>
+                  <span style={{ width: 6, height: 6, background: 'var(--crimson)', display: 'inline-block' }} />
+                  <h3 className="font-mono uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', color: 'var(--ink-mute)' }}>
                     Monitor de alertas
                   </h3>
-                  <span className="text-[10px] font-mono" style={{ color: 'var(--text-4)' }}>{alerts.length} no filtro</span>
+                  <span className="font-mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>{alerts.length} no filtro</span>
                 </div>
                 <Filters filters={filters} setFilters={setFilters} />
               </div>
@@ -163,8 +163,8 @@ export default function App() {
         </main>
 
         <footer className="px-5 py-4 flex justify-between items-center border-t" style={{ borderColor: 'var(--border-light)' }}>
-          <span className="text-[10px] font-mono uppercase tracking-widest" style={{ color: 'var(--text-4)' }}>
-            Spark Maxx Monitoring // v4.0.0
+          <span className="font-display" style={{ fontSize: 13, color: 'var(--ink-mute)' }}>
+            Spark Maxx · <span style={{ fontStyle: 'italic' }}>Growth Ops</span>
           </span>
           <span className="text-[10px] font-mono" style={{ color: 'var(--text-3)' }}>
             &copy; {new Date().getFullYear()} Pipeline Ops
