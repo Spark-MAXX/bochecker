@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import type { FunnelStats, LeadsStats } from '../lib/schemas';
+import type { LeadsStats } from '../lib/schemas';
+import type { JourneyStats } from '../lib/journey';
 import type { Page } from './Sidebar';
 
 interface OverviewProps {
@@ -16,36 +17,41 @@ const TONE: Record<Tone, string> = {
 };
 
 const PERIODS = [
-  { key: 'h24', label: '24h' },
-  { key: 'hoje', label: 'Hoje' },
-  { key: 'd7', label: '7 dias' },
+  { k: 'hoje', label: 'Hoje' },
+  { k: '7d', label: '7 dias' },
+  { k: '30d', label: '30 dias' },
+  { k: 'tudo', label: 'Tudo' },
 ] as const;
+
+function periodRange(p: string): { from: string; to: string } {
+  if (p === 'tudo') return { from: '2020-01-01T00:00:00.000Z', to: '' };
+  const now = new Date(); const f = new Date();
+  if (p === 'hoje') f.setHours(0, 0, 0, 0); else f.setTime(Date.now() - (p === '7d' ? 7 : 30) * 86400000);
+  return { from: f.toISOString(), to: now.toISOString() };
+}
+
+interface FlowStats {
+  framer_total: number; framer_ok: number; pass_total: number; pass_ok: number;
+  framer_falhou: number; pass_falhou: number; taxa_framer_ok: number; taxa_rd_mql: number; taxa_mql_deal: number;
+}
 
 // ── Subcomponentes editoriais ────────────────────────────────────────────────
 function Eyebrow({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.15em', color: 'var(--ink-mute)' }}>
-      {children}
-    </div>
-  );
+  return <div className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.15em', color: 'var(--ink-mute)' }}>{children}</div>;
 }
 
-function Kpi({ label, value, suffix, tone = 'ink', foot }: { label: string; value: React.ReactNode; suffix?: string; tone?: Tone; foot?: React.ReactNode }) {
+function Kpi({ label, value, tone = 'ink', foot, first }: { label: string; value: React.ReactNode; tone?: Tone; foot?: React.ReactNode; first?: boolean }) {
   return (
-    <div style={{ padding: '4px 24px', borderRight: '1px solid var(--rule)' }} className="kpi-cell">
+    <div style={{ padding: '4px 24px', borderRight: '1px solid var(--rule)', paddingLeft: first ? 0 : 24 }}>
       <div className="font-mono uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', color: 'var(--ink-mute)', marginBottom: 12 }}>{label}</div>
-      <div className="font-display" style={{ fontSize: 46, lineHeight: 1, color: TONE[tone], fontWeight: 400 }}>
-        {value}{suffix && <span style={{ fontSize: 24 }}>{suffix}</span>}
-      </div>
+      <div className="font-display" style={{ fontSize: 44, lineHeight: 1, color: TONE[tone], fontWeight: 400 }}>{value}</div>
       {foot && <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginTop: 10 }}>{foot}</div>}
     </div>
   );
 }
-
 function Delta({ children }: { children: React.ReactNode }) {
   return <span className="font-mono" style={{ fontSize: 11, padding: '2px 6px', background: 'var(--bg-soft)', color: 'var(--ink)' }}>{children}</span>;
 }
-
 function Panel({ title, eyebrow, action, children }: { title: string; eyebrow?: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--rule)' }}>
@@ -57,159 +63,146 @@ function Panel({ title, eyebrow, action, children }: { title: string; eyebrow?: 
     </div>
   );
 }
+function MiniCell({ label, value, tone = 'ink', right, bottom }: { label: string; value: React.ReactNode; tone?: Tone; right?: boolean; bottom?: boolean }) {
+  return (
+    <div style={{ padding: '16px 20px', borderRight: right ? 'none' : '1px solid var(--rule)', borderBottom: bottom ? 'none' : '1px solid var(--rule)' }}>
+      <div className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--ink-mute)', marginBottom: 6 }}>{label}</div>
+      <div className="font-display" style={{ fontSize: 30, lineHeight: 1, color: TONE[tone] }}>{value}</div>
+    </div>
+  );
+}
 
 export default function Overview({ dashboard, leadsStats, refreshKey, onNavigate }: OverviewProps) {
-  const [funnel, setFunnel] = useState<FunnelStats | null>(null);
-  const [period, setPeriod] = useState<'h24' | 'hoje' | 'd7'>('d7');
+  const [period, setPeriod] = useState('30d');
+  const [flow, setFlow] = useState<FlowStats | null>(null);
+  const [jstats, setJstats] = useState<JourneyStats | null>(null);
 
   useEffect(() => {
     let alive = true;
-    fetch('/api/leads/unified-stats')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (alive) setFunnel(d); })
-      .catch(() => {});
+    const { from, to } = periodRange(period);
+    const sp = new URLSearchParams(); if (from) sp.append('from', from); if (to) sp.append('to', to);
+    Promise.all([
+      fetch(`/api/journey/flow-stats?${sp}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`/api/journey/stats?${sp}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([f, j]) => { if (alive) { setFlow(f); setJstats(j); } });
     return () => { alive = false; };
-  }, [refreshKey]);
+  }, [period, refreshKey]);
 
-  const p = funnel?.periodos[period];
-  const f = funnel?.funil_rd;
-  const fmax = Math.max(f?.capturado ?? 1, 1);
-  const steps = f ? [
-    { label: 'Capturado', value: f.capturado, color: 'var(--navy)' },
-    { label: 'Processado', value: f.processado, color: 'var(--amber)' },
-    { label: 'Deal criado', value: f.deal, color: 'var(--plum)' },
-    { label: 'Ganho', value: f.ganho, color: 'var(--olive)' },
-    { label: 'Perdido', value: f.perdido, color: 'var(--crimson)' },
+  const fmax = Math.max(flow?.framer_total ?? 1, 1);
+  const steps = flow ? [
+    { label: 'Webhook Framer', value: flow.framer_total, color: 'var(--amber)', sub: 'gatilho do forms disparou' },
+    { label: 'Chegou ao RD', value: flow.framer_ok, color: 'var(--navy)', sub: `${flow.taxa_framer_ok}% concluíram sem erro` },
+    { label: 'MQL (Fluxo Pipedrive)', value: flow.pass_total, color: 'var(--plum)', sub: `iniciou a passagem · ${flow.taxa_rd_mql}% do RD` },
+    { label: 'Deal criado', value: flow.pass_ok, color: 'var(--olive)', sub: `${flow.taxa_mql_deal}% das passagens sem erro` },
   ] : [];
 
   return (
     <div className="space-y-8">
-      {/* Hero / eyebrow */}
+      {/* Hero + período */}
       <div style={{ paddingTop: 8 }}>
-        <div className="flex items-center gap-2" style={{ marginBottom: 14 }}>
-          <span style={{ width: 6, height: 6, background: 'var(--crimson)', display: 'inline-block' }} />
-          <Eyebrow>Pipeline ao vivo · Framer → RD → Pipedrive</Eyebrow>
-        </div>
-        <h1 className="font-display" style={{ fontSize: 'clamp(34px, 4vw, 52px)', lineHeight: 1.04, fontWeight: 400, color: 'var(--ink)', maxWidth: 820 }}>
-          O funil de leads, da captura ao <span className="font-display-em">fechamento</span>.
-        </h1>
-      </div>
-
-      {/* KPI row — período */}
-      <div>
-        <div className="flex items-center justify-between" style={{ marginBottom: 16, paddingBottom: 10, borderBottom: '1px solid var(--rule)' }}>
-          <Eyebrow>01 · Janela</Eyebrow>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <div className="flex items-center gap-2" style={{ marginBottom: 12 }}>
+              <span style={{ width: 6, height: 6, background: 'var(--crimson)', display: 'inline-block' }} />
+              <Eyebrow>Pipeline ao vivo · Framer → RD → Pipedrive</Eyebrow>
+            </div>
+            <h1 className="font-display" style={{ fontSize: 'clamp(30px, 4vw, 46px)', lineHeight: 1.04, fontWeight: 400, color: 'var(--ink)' }}>
+              O funil de leads, da captura ao <span className="font-display-em">fechamento</span>.
+            </h1>
+          </div>
           <div className="flex items-center gap-1">
-            {PERIODS.map((pp) => (
-              <button key={pp.key} onClick={() => setPeriod(pp.key)}
-                className="font-mono uppercase"
-                style={{
-                  fontSize: 10, letterSpacing: '0.08em', padding: '4px 10px', cursor: 'pointer', borderRadius: 999,
-                  background: period === pp.key ? 'var(--bg-soft)' : 'transparent',
-                  color: period === pp.key ? 'var(--ink)' : 'var(--ink-mute)',
-                  border: `1px solid ${period === pp.key ? 'var(--rule-strong)' : 'transparent'}`,
-                }}>
-                {pp.label}
-              </button>
-            ))}
+            {PERIODS.map((p) => {
+              const active = period === p.k;
+              return (
+                <button key={p.k} onClick={() => setPeriod(p.k)} className="font-mono uppercase"
+                  style={{ fontSize: 10, padding: '5px 12px', borderRadius: 999, border: `1px solid ${active ? 'var(--crimson)' : 'var(--border)'}`, background: active ? 'var(--crimson-soft)' : 'transparent', color: active ? 'var(--crimson)' : 'var(--text-3)' }}>
+                  {p.label}
+                </button>
+              );
+            })}
           </div>
         </div>
-        <div className="kpi-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', rowGap: 28 }}>
-          <Kpi label={`Entraram · ${period}`} value={p?.entraram ?? '—'} tone="ink" foot={<>no funil unificado</>} />
-          <Kpi label="Completos" value={p?.completos ?? '—'} tone="olive" foot={p ? <><Delta>{p.taxa_completos}%</Delta> de completude</> : undefined} />
-          <Kpi label="Incompletos" value={p?.incompletos ?? '—'} tone="amber" foot={<>faltando campos obrigatórios</>} />
-          <Kpi label="Com problema" value={p?.problema ?? '—'} tone="crimson" foot={<>saúde ≠ ok</>} />
-          <Kpi label="Viraram deal" value={p?.deals ?? '—'} tone="plum" foot={<>chegaram ao Pipedrive</>} />
-          <Kpi label="Duplicados" value={funnel?.duplicados ?? '—'} tone="amber" foot={<>mesmo email em +1 base</>} />
-        </div>
       </div>
 
-      {/* Funil em barras */}
+      {/* Funil de conversão por execução do n8n */}
       <div>
         <div className="flex items-center justify-between" style={{ marginBottom: 16, paddingBottom: 10, borderBottom: '1px solid var(--rule)' }}>
-          <h2 className="font-display" style={{ fontSize: 24, fontWeight: 400, color: 'var(--ink)' }}>
-            Onde o lead <span className="font-display-em">para</span>.
-          </h2>
-          <Eyebrow>02 · Estágios (30d)</Eyebrow>
+          <h2 className="font-display" style={{ fontSize: 24, fontWeight: 400, color: 'var(--ink)' }}>Funil de <span className="font-display-em">conversão</span></h2>
+          <button onClick={() => onNavigate('funil')} className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--crimson)', letterSpacing: '0.08em', background: 'none', border: 0, cursor: 'pointer' }}>abrir funil →</button>
         </div>
-        <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--rule)', padding: 24 }}>
-          {steps.length === 0 ? (
-            <div className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>Carregando funil…</div>
-          ) : (
+        {/* KPIs grandes */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', rowGap: 24, marginBottom: 20 }}>
+          <Kpi first label="Webhook Framer" value={flow?.framer_total ?? '—'} tone="amber" foot="gatilho do forms disparou" />
+          <Kpi label="Chegou ao RD" value={flow?.framer_ok ?? '—'} tone="navy" foot={flow ? <><Delta>{flow.taxa_framer_ok}%</Delta> concluíram sem erro</> : undefined} />
+          <Kpi first label="MQL (Fluxo Pipedrive)" value={flow?.pass_total ?? '—'} tone="plum" foot={flow ? <>iniciaram a passagem de leads</> : undefined} />
+          <Kpi label="Deal criado" value={flow?.pass_ok ?? '—'} tone="olive" foot={flow ? <><Delta>{flow.taxa_mql_deal}%</Delta> das passagens sem erro</> : undefined} />
+        </div>
+        {/* Barras */}
+        <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--rule)', padding: 20 }}>
+          {steps.length === 0 ? <div className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>Carregando…</div> : (
             <div className="flex flex-col" style={{ gap: 10 }}>
               {steps.map((s) => (
-                <div key={s.label} style={{ display: 'grid', gridTemplateColumns: '160px 1fr 56px', alignItems: 'center', gap: 16 }}>
+                <div key={s.label} style={{ display: 'grid', gridTemplateColumns: '170px 1fr 160px', alignItems: 'center', gap: 12 }}>
                   <span style={{ fontSize: 13, color: 'var(--ink)' }}>{s.label}</span>
-                  <div style={{ background: 'var(--bg-soft)', height: 26, position: 'relative' }}>
-                    <div style={{ height: '100%', width: `${(s.value / fmax) * 100}%`, background: s.color, display: 'flex', alignItems: 'center', paddingLeft: 10, transition: 'width .6s ease' }}>
-                      <span className="font-mono" style={{ fontSize: 12, color: '#1A1814', fontWeight: 600 }}>{s.value}</span>
+                  <div style={{ background: 'var(--bg-soft)', height: 24, position: 'relative' }}>
+                    <div style={{ height: '100%', width: `${(s.value / fmax) * 100}%`, background: s.color, display: 'flex', alignItems: 'center', paddingLeft: 8, transition: 'width .6s' }}>
+                      <span className="font-mono" style={{ fontSize: 11, color: '#1A1814', fontWeight: 600 }}>{s.value}</span>
                     </div>
                   </div>
-                  <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink-mute)', textAlign: 'right' }}>
-                    {fmax ? Math.round((s.value / fmax) * 100) : 0}%
-                  </span>
+                  <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)' }}>{s.sub}</span>
                 </div>
               ))}
             </div>
           )}
-          {f && f.nao_processado > 0 && (
-            <div className="font-mono" style={{ fontSize: 11, color: 'var(--crimson)', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
-              ⚠ {f.nao_processado} lead(s) chegaram no RD mas não foram processados
+          {flow && (
+            <div className="flex flex-wrap gap-2 pt-3" style={{ borderTop: '1px solid var(--rule)', marginTop: 12 }}>
+              <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)', alignSelf: 'center' }}>Erros:</span>
+              <span className="font-mono" style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: 'var(--bg-soft)', color: flow.framer_falhou > 0 ? 'var(--crimson)' : 'var(--text-3)' }}>Framer disparou sem concluir: <b>{flow.framer_falhou}</b></span>
+              <span className="font-mono" style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: 'var(--bg-soft)', color: flow.pass_falhou > 0 ? 'var(--crimson)' : 'var(--text-3)' }}>Passagem com erro: <b>{flow.pass_falhou}</b></span>
+              <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)', marginLeft: 'auto', alignSelf: 'center' }}>por execução do n8n</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Painéis menores */}
+      {/* Painéis */}
       <div className="grid grid-cols-1 lg:grid-cols-3" style={{ gap: 24 }}>
-        <Panel title="Resultado no Pipedrive" eyebrow="S4 · deals">
+        <Panel title="Resultado no Pipedrive" eyebrow="passagem de leads">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-            {[
-              { l: 'Deals criados', v: f?.deal ?? '—', t: 'plum' as Tone },
-              { l: 'Em aberto', v: f ? Math.max(f.deal - f.ganho - f.perdido, 0) : '—', t: 'navy' as Tone },
-              { l: 'Ganhos', v: f?.ganho ?? '—', t: 'olive' as Tone },
-              { l: 'Perdidos', v: f?.perdido ?? '—', t: 'crimson' as Tone },
-            ].map((c, i) => (
-              <div key={c.l} style={{ padding: '16px 20px', borderRight: i % 2 === 0 ? '1px solid var(--rule)' : 'none', borderBottom: i < 2 ? '1px solid var(--rule)' : 'none' }}>
-                <div className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--ink-mute)', marginBottom: 6 }}>{c.l}</div>
-                <div className="font-display" style={{ fontSize: 30, lineHeight: 1, color: TONE[c.t] }}>{c.v}</div>
-              </div>
-            ))}
+            <MiniCell label="Deals criados" value={flow?.pass_ok ?? '—'} tone="olive" />
+            <MiniCell label="Passagens c/ erro" value={flow?.pass_falhou ?? '—'} tone="crimson" right />
+            <MiniCell label="Ganhos" value={jstats?.ganho ?? '—'} tone="olive" bottom />
+            <MiniCell label="Perdidos" value={jstats?.perdido ?? '—'} tone="ink" right bottom />
           </div>
-          <div className="font-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', padding: '10px 20px', borderTop: '1px solid var(--rule)' }}>
+          <div className="font-mono" style={{ fontSize: 9, color: 'var(--ink-faint)', padding: '10px 20px', borderTop: '1px solid var(--rule)' }}>
             ganho/perdido dependem do sync do Pipedrive (deals_snapshot)
           </div>
         </Panel>
 
-        <Panel title="Por origem" eyebrow="30 dias"
-          action={<button onClick={() => onNavigate('funil')} className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--crimson)', letterSpacing: '0.08em', cursor: 'pointer', background: 'none', border: 0 }}>ver funil →</button>}>
+        <Panel title="Jornada dos leads" eyebrow="por lead (base)"
+          action={<button onClick={() => onNavigate('funil')} className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--crimson)', background: 'none', border: 0, cursor: 'pointer' }}>ver →</button>}>
           <div>
-            {(funnel?.por_origem ?? []).map((o, i, arr) => (
-              <div key={o.source} className="flex items-center justify-between" style={{ padding: '12px 20px', borderBottom: i < arr.length - 1 ? '1px solid var(--rule)' : 'none' }}>
-                <span style={{ fontSize: 13, color: 'var(--ink-mute)' }}>{o.source_label}</span>
-                <span className="font-mono" style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>
-                  {o.total}{o.problema > 0 && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--crimson)' }}>{o.problema}⚠</span>}
-                </span>
+            {[
+              { l: 'Total de leads', v: jstats?.total, t: 'ink' as Tone },
+              { l: 'Vieram do Framer', v: jstats?.framer, t: 'amber' as Tone },
+              { l: 'Chegaram ao RD', v: jstats?.framer_to_rd, t: 'navy' as Tone },
+              { l: 'Webinar (separado)', v: jstats?.webinar, t: 'plum' as Tone },
+            ].map((r, i, arr) => (
+              <div key={r.l} className="flex items-center justify-between" style={{ padding: '12px 20px', borderBottom: i < arr.length - 1 ? '1px solid var(--rule)' : 'none' }}>
+                <span style={{ fontSize: 13, color: 'var(--ink-mute)' }}>{r.l}</span>
+                <span className="font-mono" style={{ fontSize: 15, fontWeight: 600, color: TONE[r.t] }}>{r.v ?? '—'}</span>
               </div>
             ))}
-            {!funnel && <div className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', padding: '12px 20px' }}>Carregando…</div>}
           </div>
         </Panel>
 
         <Panel title="Alertas & qualidade" eyebrow="agora"
-          action={<button onClick={() => onNavigate('alertas')} className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--crimson)', letterSpacing: '0.08em', cursor: 'pointer', background: 'none', border: 0 }}>ver alertas →</button>}>
+          action={<button onClick={() => onNavigate('alertas')} className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--crimson)', background: 'none', border: 0, cursor: 'pointer' }}>ver alertas →</button>}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-            {[
-              { l: 'Alertas abertos', v: dashboard.openCount, t: (dashboard.openCount > 0 ? 'crimson' : 'olive') as Tone },
-              { l: 'Resolvidos hoje', v: dashboard.resolvedToday, t: 'olive' as Tone },
-              { l: 'Completude 24h', v: `${leadsStats?.completion_rate_24h ?? 0}%`, t: 'navy' as Tone },
-              { l: 'Leads 7d', v: leadsStats?.total_7d ?? 0, t: 'ink' as Tone },
-            ].map((c, i) => (
-              <div key={c.l} style={{ padding: '16px 20px', borderRight: i % 2 === 0 ? '1px solid var(--rule)' : 'none', borderBottom: i < 2 ? '1px solid var(--rule)' : 'none' }}>
-                <div className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--ink-mute)', marginBottom: 6 }}>{c.l}</div>
-                <div className="font-display" style={{ fontSize: 30, lineHeight: 1, color: TONE[c.t] }}>{c.v}</div>
-              </div>
-            ))}
+            <MiniCell label="Alertas abertos" value={dashboard.openCount} tone={dashboard.openCount > 0 ? 'crimson' : 'olive'} />
+            <MiniCell label="Resolvidos hoje" value={dashboard.resolvedToday} tone="olive" right />
+            <MiniCell label="Completude 24h" value={`${leadsStats?.completion_rate_24h ?? 0}%`} tone="navy" bottom />
+            <MiniCell label="Leads 7d" value={leadsStats?.total_7d ?? 0} tone="ink" right bottom />
           </div>
         </Panel>
       </div>
