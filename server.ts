@@ -10,6 +10,7 @@ import { LeadIncompletoSchema, ErroTecnicoSchema } from './src/lib/schemas.ts';
 import { validateLeadFields, LEAD_SOURCE_LABELS, type LeadSource } from './src/lib/validation-config.ts';
 import { fetchUnifiedLeads, fetchUnifiedStats, type UnifiedFilters } from './src/lib/leads-unified.ts';
 import { fetchDuplicates, dedupe, type DupSource } from './src/lib/dedupe.ts';
+import { fetchJourneys, fetchJourneyStats, type JourneyFilters, type JourneyStage, type Health } from './src/lib/journey.ts';
 
 const logger = pino({
   transport: {
@@ -657,6 +658,30 @@ async function startServer() {
     try {
       res.json(await dedupe(db, { source, email, dryRun }));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/journey — jornada unificada (1 lead por conversion_identifier/email)
+  app.get('/api/journey', async (req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    const q = req.query;
+    const f: JourneyFilters = {
+      stage: (q.stage as JourneyStage) || undefined, health: (q.health as Health) || undefined,
+      search: (q.search as string) || undefined,
+      problemOnly: q.problem === '1' || q.problem === 'true', dupOnly: q.dup === '1' || q.dup === 'true',
+      from: (q.from as string) || undefined, to: (q.to as string) || undefined,
+      limit: q.limit ? Number(q.limit) : undefined,
+    };
+    try { res.json(await fetchJourneys(db, f)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/journey/stats — funil de conversão ponta a ponta
+  app.get('/api/journey/stats', async (req, res) => {
+    const db = getSupabaseAdmin();
+    if (!db) return res.status(503).json({ error: 'Database service unavailable' });
+    try { res.json(await fetchJourneyStats(db, { from: req.query.from as string, to: req.query.to as string })); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // GET /api/leads/stats — contadores agregados
