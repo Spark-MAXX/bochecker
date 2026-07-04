@@ -28,18 +28,6 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   return <div className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.15em', color: 'var(--ink-mute)' }}>{children}</div>;
 }
 
-function Kpi({ label, value, tone = 'ink', foot, first }: { label: string; value: React.ReactNode; tone?: Tone; foot?: React.ReactNode; first?: boolean }) {
-  return (
-    <div style={{ padding: '4px 24px', borderRight: '1px solid var(--rule)', paddingLeft: first ? 0 : 24 }}>
-      <div className="font-mono uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', color: 'var(--ink-mute)', marginBottom: 12 }}>{label}</div>
-      <div className="font-display" style={{ fontSize: 44, lineHeight: 1, color: TONE[tone], fontWeight: 400 }}>{value}</div>
-      {foot && <div style={{ fontSize: 12, color: 'var(--ink-mute)', marginTop: 10 }}>{foot}</div>}
-    </div>
-  );
-}
-function Delta({ children }: { children: React.ReactNode }) {
-  return <span className="font-mono" style={{ fontSize: 11, padding: '2px 6px', background: 'var(--bg-soft)', color: 'var(--ink)' }}>{children}</span>;
-}
 function Panel({ title, eyebrow, action, children }: { title: string; eyebrow?: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--rule)' }}>
@@ -78,14 +66,16 @@ export default function Overview({ dashboard, leadsStats, refreshKey, onNavigate
     return () => { alive = false; };
   }, [fromDate, toDate, refreshKey]);
 
-  const fmax = Math.max(flow?.backup_total ?? 0, flow?.framer_total ?? 1, 1);
-  const steps = flow ? [
-    { label: 'Backup Framer', value: flow.backup_total, color: 'var(--crimson)', sub: 'captura crua do form (leads_framer_backup)' },
-    { label: 'Webhook Framer', value: flow.framer_total, color: 'var(--amber)', sub: flow.backup_total ? `${flow.taxa_backup_framer}% do backup viraram lead qualificado` : 'gatilho do forms disparou' },
-    { label: 'Chegou ao RD', value: flow.framer_ok, color: 'var(--navy)', sub: `${flow.taxa_framer_ok}% concluíram sem erro` },
-    { label: 'MQL (Fluxo Pipedrive)', value: flow.pass_total, color: 'var(--plum)', sub: `iniciou a passagem · ${flow.taxa_rd_mql}% do RD` },
-    { label: 'Deal criado', value: flow.pass_ok, color: 'var(--olive)', sub: `${flow.taxa_mql_deal}% das passagens sem erro` },
+  // 5 estágios do funil: backup → webhook framer → RD → MQL → deal
+  // O max da barra é o topo do funil, para o visual "afunilar" naturalmente.
+  const stages = flow ? [
+    { n: '01', label: 'Backup Framer',         value: flow.backup_total, tone: 'crimson' as Tone, sub: 'captura crua (leads_framer_backup)',      chip: null as string | null },
+    { n: '02', label: 'Webhook Framer',        value: flow.framer_total, tone: 'amber'   as Tone, sub: 'gatilho do form disparou o fluxo',        chip: flow.backup_total ? `${flow.taxa_backup_framer}% do backup` : null },
+    { n: '03', label: 'Chegou ao RD',          value: flow.framer_ok,    tone: 'navy'    as Tone, sub: 'execução Framer concluída sem erro',      chip: `${flow.taxa_framer_ok}% do webhook` },
+    { n: '04', label: 'MQL (Fluxo Pipedrive)', value: flow.pass_total,   tone: 'plum'    as Tone, sub: 'iniciou a passagem de leads',             chip: `${flow.taxa_rd_mql}% do RD` },
+    { n: '05', label: 'Deal criado',           value: flow.pass_ok,      tone: 'olive'   as Tone, sub: 'passagem RD → Pipedrive concluída',       chip: `${flow.taxa_mql_deal}% do MQL` },
   ] : [];
+  const fmax = Math.max(stages[0]?.value ?? 1, 1);
 
   return (
     <div className="space-y-8">
@@ -118,37 +108,66 @@ export default function Overview({ dashboard, leadsStats, refreshKey, onNavigate
           <h2 className="font-display" style={{ fontSize: 24, fontWeight: 400, color: 'var(--ink)' }}>Funil de <span className="font-display-em">conversão</span></h2>
           <button onClick={() => onNavigate('funil')} className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--crimson)', letterSpacing: '0.08em', background: 'none', border: 0, cursor: 'pointer' }}>abrir funil →</button>
         </div>
-        {/* KPIs grandes — funil completo: backup → framer → RD → MQL → deal */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', rowGap: 24, marginBottom: 20 }}>
-          <Kpi first label="Backup Framer" value={flow?.backup_total ?? '—'} tone="crimson" foot="captura crua (leads_framer_backup)" />
-          <Kpi label="Webhook Framer" value={flow?.framer_total ?? '—'} tone="amber" foot={flow?.backup_total ? <><Delta>{flow.taxa_backup_framer}%</Delta> do backup viraram lead</> : 'gatilho do forms disparou'} />
-          <Kpi first label="Chegou ao RD" value={flow?.framer_ok ?? '—'} tone="navy" foot={flow ? <><Delta>{flow.taxa_framer_ok}%</Delta> concluíram sem erro</> : undefined} />
-          <Kpi label="MQL (Fluxo Pipedrive)" value={flow?.pass_total ?? '—'} tone="plum" foot={flow ? <>iniciaram a passagem de leads</> : undefined} />
-          <Kpi first label="Deal criado" value={flow?.pass_ok ?? '—'} tone="olive" foot={flow ? <><Delta>{flow.taxa_mql_deal}%</Delta> das passagens sem erro</> : undefined} />
-        </div>
-        {/* Barras */}
-        <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--rule)', padding: 20 }}>
-          {steps.length === 0 ? <div className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>Carregando…</div> : (
-            <div className="flex flex-col" style={{ gap: 10 }}>
-              {steps.map((s) => (
-                <div key={s.label} style={{ display: 'grid', gridTemplateColumns: '170px 1fr 160px', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 13, color: 'var(--ink)' }}>{s.label}</span>
-                  <div style={{ background: 'var(--bg-soft)', height: 24, position: 'relative' }}>
-                    <div style={{ height: '100%', width: `${(s.value / fmax) * 100}%`, background: s.color, display: 'flex', alignItems: 'center', paddingLeft: 8, transition: 'width .6s' }}>
-                      <span className="font-mono" style={{ fontSize: 11, color: '#1A1814', fontWeight: 600 }}>{s.value}</span>
-                    </div>
+        {/* Funil unificado: cada estágio é uma linha com número, big number e barra proporcional */}
+        <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--rule)' }}>
+          {stages.length === 0 ? (
+            <div className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', padding: 20 }}>Carregando…</div>
+          ) : (
+            stages.map((s, i) => {
+              const width = fmax > 0 ? (s.value / fmax) * 100 : 0;
+              const isLast = i === stages.length - 1;
+              return (
+                <div key={s.n} style={{
+                  display: 'grid',
+                  gridTemplateColumns: '44px minmax(180px, 220px) minmax(120px, 140px) 1fr auto',
+                  alignItems: 'center',
+                  columnGap: 20,
+                  padding: '18px 24px',
+                  borderBottom: isLast ? 'none' : '1px solid var(--rule)',
+                }}>
+                  {/* Nº do estágio */}
+                  <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.12em', color: 'var(--ink-faint)' }}>{s.n}</div>
+
+                  {/* Rótulo + subtítulo */}
+                  <div style={{ minWidth: 0 }}>
+                    <div className="font-mono uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', color: 'var(--ink-mute)', marginBottom: 4 }}>{s.label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-4)' }}>{s.sub}</div>
                   </div>
-                  <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)' }}>{s.sub}</span>
+
+                  {/* Big number */}
+                  <div className="font-display" style={{ fontSize: 44, lineHeight: 1, color: TONE[s.tone], fontWeight: 400 }}>
+                    {s.value}
+                  </div>
+
+                  {/* Barra proporcional ao topo do funil */}
+                  <div style={{ background: 'var(--bg-soft)', height: 10, position: 'relative' }}>
+                    <div style={{
+                      height: '100%', width: `${width}%`, background: TONE[s.tone],
+                      transition: 'width .6s', display: 'flex', alignItems: 'center', paddingLeft: 8,
+                    }} />
+                  </div>
+
+                  {/* Delta / conversão */}
+                  <div>
+                    {s.chip ? (
+                      <span className="font-mono" style={{ fontSize: 11, padding: '3px 8px', background: 'var(--bg-soft)', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                        {s.chip}
+                      </span>
+                    ) : (
+                      <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)', letterSpacing: '0.1em' }}>topo</span>
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
+              );
+            })
           )}
+
           {flow && (
-            <div className="flex flex-wrap gap-2 pt-3" style={{ borderTop: '1px solid var(--rule)', marginTop: 12 }}>
-              <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)', alignSelf: 'center' }}>Erros:</span>
+            <div className="flex flex-wrap gap-2" style={{ borderTop: '1px solid var(--rule)', padding: '12px 24px' }}>
+              <span className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--text-4)', alignSelf: 'center', letterSpacing: '0.1em' }}>Erros:</span>
               <span className="font-mono" style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: 'var(--bg-soft)', color: flow.framer_falhou > 0 ? 'var(--crimson)' : 'var(--text-3)' }}>Framer disparou sem concluir: <b>{flow.framer_falhou}</b></span>
               <span className="font-mono" style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: 'var(--bg-soft)', color: flow.pass_falhou > 0 ? 'var(--crimson)' : 'var(--text-3)' }}>Passagem com erro: <b>{flow.pass_falhou}</b></span>
-              <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)', marginLeft: 'auto', alignSelf: 'center' }}>por execução do n8n</span>
+              <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)', marginLeft: 'auto', alignSelf: 'center', letterSpacing: '0.1em' }}>por execução do n8n</span>
             </div>
           )}
         </div>
