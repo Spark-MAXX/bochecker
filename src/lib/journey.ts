@@ -4,15 +4,15 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type JourneyStage = 'form' | 'rd' | 'processado' | 'deal' | 'ganho' | 'perdido' | 'webinar';
+export type JourneyStage = 'backup' | 'form' | 'rd' | 'processado' | 'deal' | 'ganho' | 'perdido' | 'webinar';
 export type Health = 'ok' | 'atencao' | 'erro';
 
 export const JOURNEY_STAGE_LABEL: Record<JourneyStage, string> = {
-  form: 'Webhook Framer', rd: 'Chegou ao RD', processado: 'MQL (Fluxo Pipedrive)', deal: 'Deal criado',
+  backup: 'Backup Framer', form: 'Webhook Framer', rd: 'Chegou ao RD', processado: 'MQL (Fluxo Pipedrive)', deal: 'Deal criado',
   ganho: 'Deal ganho', perdido: 'Deal perdido', webinar: 'Inscrito (Webinar)',
 };
 
-export interface JourneyRef { source: 'framer' | 'rd_pipedrive' | 'webinar'; id: number | string; criado_em: string | null; }
+export interface JourneyRef { source: 'backup' | 'framer' | 'rd_pipedrive' | 'webinar'; id: number | string; criado_em: string | null; }
 
 export interface JourneyLead {
   uid: string; key: string;
@@ -20,15 +20,15 @@ export interface JourneyLead {
   is_indicacao: boolean;
   utm_source: string | null; utm_medium: string | null; utm_campaign: string | null;
   created_at: string | null; last_at: string | null;
-  has_framer: boolean; has_rd: boolean; has_webinar: boolean;
-  framer_count: number; rd_count: number; webinar_count: number;
+  has_backup: boolean; has_framer: boolean; has_rd: boolean; has_webinar: boolean;
+  backup_count: number; framer_count: number; rd_count: number; webinar_count: number;
   processado: boolean | null; rota_definida: string | null; rota_encontrada: boolean | null; motivo_rota: string | null;
   destino_pipeline: string | null; destino_stage: string | null; destino_owner: string | null;
   person_id: number | null; deal_id: number | null;
   pipe: { status: string | null; stage_id: number | null; valor: number | null; won_at: string | null; lost_at: string | null; lost_reason: string | null; atualizado_em: string | null } | null;
-  reached: { form: boolean; rd: boolean; processado: boolean; deal: boolean };
+  reached: { backup: boolean; form: boolean; rd: boolean; processado: boolean; deal: boolean };
   stage: JourneyStage; stage_label: string; health: Health; stalled: string | null;
-  dup_bases: { framer: number; rd_pipedrive: number; webinar: number };
+  dup_bases: { backup: number; framer: number; rd_pipedrive: number; webinar: number };
   refs: JourneyRef[];
 }
 
@@ -38,10 +38,11 @@ export interface JourneyFilters {
 }
 
 export interface JourneyStats {
-  total: number; framer: number; framer_to_rd: number; rd: number; rd_direct: number;
+  total: number; backup: number; backup_to_framer: number;
+  framer: number; framer_to_rd: number; rd: number; rd_direct: number;
   processado: number; deal: number; aberto: number; ganho: number; perdido: number; webinar: number;
-  leak_framer_sem_rd: number; leak_rd_sem_proc: number; leak_proc_sem_deal: number;
-  taxa_framer_rd: number; taxa_rd_proc: number; taxa_proc_deal: number;
+  leak_backup_sem_framer: number; leak_framer_sem_rd: number; leak_rd_sem_proc: number; leak_proc_sem_deal: number;
+  taxa_backup_framer: number; taxa_framer_rd: number; taxa_rd_proc: number; taxa_proc_deal: number;
 }
 
 const norm = (e: any) => (e ?? '').toString().trim().toLowerCase();
@@ -54,6 +55,7 @@ const keyOf = (email: any): string | null => {
 const newer = (a: string | null, b: string | null) => ((a || '') > (b || '') ? a : b);
 
 const SEL = {
+  backup: 'id,criado_em,email,nome,telefone,empresa,page_url,utm_source,utm_medium,utm_campaign',
   framer: 'id,criado_em,email,nome,telefone,empresa,produto,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier',
   rd: 'id,criado_em,lead_email,lead_nome,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id',
   webinar: 'id,criado_em,email,nome,telefone,empresa,produto,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier',
@@ -63,18 +65,20 @@ function blank(key: string): JourneyLead {
   return {
     uid: key, key, nome: null, email: null, telefone: null, empresa: null, produto: null, is_indicacao: false,
     utm_source: null, utm_medium: null, utm_campaign: null, created_at: null, last_at: null,
-    has_framer: false, has_rd: false, has_webinar: false, framer_count: 0, rd_count: 0, webinar_count: 0,
+    has_backup: false, has_framer: false, has_rd: false, has_webinar: false,
+    backup_count: 0, framer_count: 0, rd_count: 0, webinar_count: 0,
     processado: null, rota_definida: null, rota_encontrada: null, motivo_rota: null,
     destino_pipeline: null, destino_stage: null, destino_owner: null, person_id: null, deal_id: null, pipe: null,
-    reached: { form: false, rd: false, processado: false, deal: false },
-    stage: 'form', stage_label: '', health: 'ok', stalled: null,
-    dup_bases: { framer: 0, rd_pipedrive: 0, webinar: 0 }, refs: [],
+    reached: { backup: false, form: false, rd: false, processado: false, deal: false },
+    stage: 'backup', stage_label: '', health: 'ok', stalled: null,
+    dup_bases: { backup: 0, framer: 0, rd_pipedrive: 0, webinar: 0 }, refs: [],
   };
 }
 const fill = (cur: any, val: any) => (cur === null || cur === undefined || cur === '' ? (val ?? cur) : cur);
 
 function classify(j: JourneyLead): void {
   j.reached = {
+    backup: j.has_backup,
     form: j.has_framer,
     rd: j.has_rd,
     processado: !!j.processado || !!j.deal_id,
@@ -93,6 +97,8 @@ function classify(j: JourneyLead): void {
     stage = 'rd'; health = 'erro'; stalled = 'Chegou ao RD mas não virou MQL (Fluxo Pipedrive)';
   } else if (j.has_framer) {
     stage = 'form'; health = 'atencao'; stalled = 'Webhook Framer recebido, mas não chegou ao RD';
+  } else if (j.has_backup) {
+    stage = 'backup'; health = 'erro'; stalled = 'Caiu no backup do Framer, mas não virou lead qualificado (leads_framer)';
   } else if (j.has_webinar) {
     stage = 'webinar';
   } else {
@@ -108,10 +114,26 @@ export async function fetchJourneys(db: SupabaseClient, opts: JourneyFilters = {
     if (opts.to) b = b.lte('criado_em', opts.to);
     return b;
   };
-  const [fr, rd, wb] = await Promise.all([q('leads_framer', SEL.framer), q('leads_rd_pipedrive', SEL.rd), q('leads_webinar', SEL.webinar)]);
+  const [bk, fr, rd, wb] = await Promise.all([
+    q('leads_framer_backup', SEL.backup),
+    q('leads_framer', SEL.framer),
+    q('leads_rd_pipedrive', SEL.rd),
+    q('leads_webinar', SEL.webinar),
+  ]);
 
   const map = new Map<string, JourneyLead>();
   const get = (key: string) => { let j = map.get(key); if (!j) { j = blank(key); map.set(key, j); } return j; };
+
+  for (const r of (bk.data as any[]) || []) {
+    const key = keyOf(r.email); if (!key) continue;
+    const j = get(key); j.has_backup = true; j.backup_count++;
+    j.nome = fill(j.nome, r.nome); j.email = fill(j.email, r.email); j.telefone = fill(j.telefone, r.telefone);
+    j.empresa = fill(j.empresa, r.empresa);
+    j.utm_source = fill(j.utm_source, r.utm_source); j.utm_medium = fill(j.utm_medium, r.utm_medium); j.utm_campaign = fill(j.utm_campaign, r.utm_campaign);
+    j.created_at = j.created_at ? (j.created_at < r.criado_em ? j.created_at : r.criado_em) : r.criado_em;
+    j.last_at = newer(j.last_at, r.criado_em);
+    j.refs.push({ source: 'backup', id: r.id, criado_em: r.criado_em ?? null });
+  }
 
   for (const r of (fr.data as any[]) || []) {
     const key = keyOf(r.email); if (!key) continue;
@@ -169,7 +191,12 @@ export async function fetchJourneys(db: SupabaseClient, opts: JourneyFilters = {
   }
 
   for (const j of all) {
-    j.dup_bases = { framer: j.framer_count > 1 ? j.framer_count : 0, rd_pipedrive: j.rd_count > 1 ? j.rd_count : 0, webinar: j.webinar_count > 1 ? j.webinar_count : 0 };
+    j.dup_bases = {
+      backup: j.backup_count > 1 ? j.backup_count : 0,
+      framer: j.framer_count > 1 ? j.framer_count : 0,
+      rd_pipedrive: j.rd_count > 1 ? j.rd_count : 0,
+      webinar: j.webinar_count > 1 ? j.webinar_count : 0,
+    };
     classify(j);
   }
 
@@ -177,7 +204,7 @@ export async function fetchJourneys(db: SupabaseClient, opts: JourneyFilters = {
   if (opts.stage) filtered = filtered.filter((j) => j.stage === opts.stage);
   if (opts.health) filtered = filtered.filter((j) => j.health === opts.health);
   if (opts.problemOnly) filtered = filtered.filter((j) => j.health !== 'ok');
-  if (opts.dupOnly) filtered = filtered.filter((j) => j.dup_bases.framer || j.dup_bases.rd_pipedrive || j.dup_bases.webinar);
+  if (opts.dupOnly) filtered = filtered.filter((j) => j.dup_bases.backup || j.dup_bases.framer || j.dup_bases.rd_pipedrive || j.dup_bases.webinar);
   if (opts.search) {
     const s = opts.search.trim().toLowerCase();
     filtered = filtered.filter((j) => (j.email || '').toLowerCase().includes(s) || (j.nome || '').toLowerCase().includes(s) || (j.empresa || '').toLowerCase().includes(s));
@@ -190,22 +217,28 @@ export async function fetchJourneys(db: SupabaseClient, opts: JourneyFilters = {
 export async function fetchJourneyStats(db: SupabaseClient, opts: { from?: string; to?: string } = {}): Promise<JourneyStats> {
   const { data: js } = await fetchJourneys(db, { from: opts.from, to: opts.to, limit: 1_000_000 });
   const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0);
-  // Funil monotônico restrito à origem Framer (cada etapa ⊆ anterior)
+  // Funil monotônico do caminho Framer (cada etapa ⊆ anterior):
+  //   backup → leads_framer → leads_rd_pipedrive → MQL → deal
+  const backup = js.filter((j) => j.has_backup).length;
+  const backup_to_framer = js.filter((j) => j.has_backup && j.has_framer).length;
   const framer = js.filter((j) => j.has_framer).length;
   const framer_to_rd = js.filter((j) => j.has_framer && j.has_rd).length;
   const mql = js.filter((j) => j.has_framer && j.has_rd && (j.processado === true || !!j.deal_id)).length;
   const deal = js.filter((j) => j.has_framer && j.has_rd && !!j.deal_id).length;
   const rd = js.filter((j) => j.has_rd).length;
   return {
-    total: js.length, framer, framer_to_rd, rd, rd_direct: js.filter((j) => j.has_rd && !j.has_framer).length,
+    total: js.length, backup, backup_to_framer,
+    framer, framer_to_rd, rd, rd_direct: js.filter((j) => j.has_rd && !j.has_framer).length,
     processado: mql, deal,
     aberto: js.filter((j) => j.has_framer && j.deal_id && j.stage === 'deal').length,
     ganho: js.filter((j) => j.has_framer && j.stage === 'ganho').length,
     perdido: js.filter((j) => j.has_framer && j.stage === 'perdido').length,
     webinar: js.filter((j) => j.has_webinar).length,
+    leak_backup_sem_framer: js.filter((j) => j.has_backup && !j.has_framer).length,
     leak_framer_sem_rd: js.filter((j) => j.has_framer && !j.has_rd).length,
     leak_rd_sem_proc: js.filter((j) => j.has_framer && j.has_rd && j.processado !== true && !j.deal_id).length,
     leak_proc_sem_deal: js.filter((j) => j.has_framer && j.has_rd && j.processado === true && !j.deal_id).length,
+    taxa_backup_framer: pct(backup_to_framer, backup),
     taxa_framer_rd: pct(framer_to_rd, framer),
     taxa_rd_proc: pct(mql, framer_to_rd),
     taxa_proc_deal: pct(deal, mql),

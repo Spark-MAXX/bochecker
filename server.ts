@@ -647,7 +647,7 @@ async function startServer() {
   app.post('/api/funnel/delete', webhookAuth, async (req, res) => {
     const db = getSupabaseAdmin();
     if (!db) return res.status(503).json({ error: 'Database service unavailable' });
-    const TBL: Record<string, string> = { framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
+    const TBL: Record<string, string> = { backup: 'leads_framer_backup', framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
     const items: { source: string; id: number | string }[] = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.status(400).json({ error: 'items vazio' });
     let deleted = 0; const errors: string[] = [];
@@ -667,7 +667,7 @@ async function startServer() {
     if (!db) return res.status(503).json({ error: 'Database service unavailable' });
     const url = process.env.N8N_REPROCESS_WEBHOOK_URL;
     if (!url) return res.status(501).json({ error: 'N8N_REPROCESS_WEBHOOK_URL não configurado' });
-    const TBL: Record<string, string> = { framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
+    const TBL: Record<string, string> = { backup: 'leads_framer_backup', framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
     const { source, id } = (req.body || {}) as { source: string; id: number | string };
     const table = TBL[source];
     if (!table || id === undefined || id === null) return res.status(400).json({ error: 'source/id inválidos' });
@@ -726,6 +726,8 @@ async function startServer() {
   });
 
   // GET /api/journey/flow-stats — funil POR EXECUÇÃO dos fluxos n8n
+  // O primeiro estágio (backup_total) é POR REGISTRO em leads_framer_backup,
+  // já que a captura crua não passa por execução do n8n.
   app.get('/api/journey/flow-stats', async (req, res) => {
     const db = getSupabaseAdmin();
     if (!db) return res.status(503).json({ error: 'Database service unavailable' });
@@ -735,8 +737,12 @@ async function startServer() {
     let q = db.from('n8n_executions').select('workflow_id,status,started_at');
     if (from) q = q.gte('started_at', from);
     if (to) q = q.lte('started_at', to);
-    const { data, error } = await q;
+    let bkQ = db.from('leads_framer_backup').select('id', { count: 'exact', head: true });
+    if (from) bkQ = bkQ.gte('criado_em', from);
+    if (to) bkQ = bkQ.lte('criado_em', to);
+    const [{ data, error }, bkRes] = await Promise.all([q, bkQ]);
     if (error) return res.status(500).json({ error: error.message });
+    const backup_total = bkRes.count || 0;
     const norm = (w: any) => (w || '').toString().replace(/^=/, '');
     let framer_total = 0, framer_ok = 0, pass_total = 0, pass_ok = 0;
     for (const e of (data as any[]) || []) {
@@ -746,8 +752,10 @@ async function startServer() {
     }
     const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0);
     res.json({
+      backup_total,
       framer_total, framer_ok, pass_total, pass_ok,
       framer_falhou: framer_total - framer_ok, pass_falhou: pass_total - pass_ok,
+      taxa_backup_framer: pct(framer_total, backup_total),
       taxa_framer_ok: pct(framer_ok, framer_total), taxa_rd_mql: pct(pass_total, framer_ok), taxa_mql_deal: pct(pass_ok, pass_total),
     });
   });

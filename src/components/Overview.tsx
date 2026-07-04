@@ -17,8 +17,10 @@ const TONE: Record<Tone, string> = {
 };
 
 interface FlowStats {
+  backup_total: number;
   framer_total: number; framer_ok: number; pass_total: number; pass_ok: number;
-  framer_falhou: number; pass_falhou: number; taxa_framer_ok: number; taxa_rd_mql: number; taxa_mql_deal: number;
+  framer_falhou: number; pass_falhou: number;
+  taxa_backup_framer: number; taxa_framer_ok: number; taxa_rd_mql: number; taxa_mql_deal: number;
 }
 
 // ── Subcomponentes editoriais ────────────────────────────────────────────────
@@ -76,9 +78,10 @@ export default function Overview({ dashboard, leadsStats, refreshKey, onNavigate
     return () => { alive = false; };
   }, [fromDate, toDate, refreshKey]);
 
-  const fmax = Math.max(flow?.framer_total ?? 1, 1);
+  const fmax = Math.max(flow?.backup_total ?? 0, flow?.framer_total ?? 1, 1);
   const steps = flow ? [
-    { label: 'Webhook Framer', value: flow.framer_total, color: 'var(--amber)', sub: 'gatilho do forms disparou' },
+    { label: 'Backup Framer', value: flow.backup_total, color: 'var(--crimson)', sub: 'captura crua do form (leads_framer_backup)' },
+    { label: 'Webhook Framer', value: flow.framer_total, color: 'var(--amber)', sub: flow.backup_total ? `${flow.taxa_backup_framer}% do backup viraram lead qualificado` : 'gatilho do forms disparou' },
     { label: 'Chegou ao RD', value: flow.framer_ok, color: 'var(--navy)', sub: `${flow.taxa_framer_ok}% concluíram sem erro` },
     { label: 'MQL (Fluxo Pipedrive)', value: flow.pass_total, color: 'var(--plum)', sub: `iniciou a passagem · ${flow.taxa_rd_mql}% do RD` },
     { label: 'Deal criado', value: flow.pass_ok, color: 'var(--olive)', sub: `${flow.taxa_mql_deal}% das passagens sem erro` },
@@ -115,12 +118,13 @@ export default function Overview({ dashboard, leadsStats, refreshKey, onNavigate
           <h2 className="font-display" style={{ fontSize: 24, fontWeight: 400, color: 'var(--ink)' }}>Funil de <span className="font-display-em">conversão</span></h2>
           <button onClick={() => onNavigate('funil')} className="font-mono uppercase" style={{ fontSize: 9, color: 'var(--crimson)', letterSpacing: '0.08em', background: 'none', border: 0, cursor: 'pointer' }}>abrir funil →</button>
         </div>
-        {/* KPIs grandes */}
+        {/* KPIs grandes — funil completo: backup → framer → RD → MQL → deal */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', rowGap: 24, marginBottom: 20 }}>
-          <Kpi first label="Webhook Framer" value={flow?.framer_total ?? '—'} tone="amber" foot="gatilho do forms disparou" />
-          <Kpi label="Chegou ao RD" value={flow?.framer_ok ?? '—'} tone="navy" foot={flow ? <><Delta>{flow.taxa_framer_ok}%</Delta> concluíram sem erro</> : undefined} />
-          <Kpi first label="MQL (Fluxo Pipedrive)" value={flow?.pass_total ?? '—'} tone="plum" foot={flow ? <>iniciaram a passagem de leads</> : undefined} />
-          <Kpi label="Deal criado" value={flow?.pass_ok ?? '—'} tone="olive" foot={flow ? <><Delta>{flow.taxa_mql_deal}%</Delta> das passagens sem erro</> : undefined} />
+          <Kpi first label="Backup Framer" value={flow?.backup_total ?? '—'} tone="crimson" foot="captura crua (leads_framer_backup)" />
+          <Kpi label="Webhook Framer" value={flow?.framer_total ?? '—'} tone="amber" foot={flow?.backup_total ? <><Delta>{flow.taxa_backup_framer}%</Delta> do backup viraram lead</> : 'gatilho do forms disparou'} />
+          <Kpi first label="Chegou ao RD" value={flow?.framer_ok ?? '—'} tone="navy" foot={flow ? <><Delta>{flow.taxa_framer_ok}%</Delta> concluíram sem erro</> : undefined} />
+          <Kpi label="MQL (Fluxo Pipedrive)" value={flow?.pass_total ?? '—'} tone="plum" foot={flow ? <>iniciaram a passagem de leads</> : undefined} />
+          <Kpi first label="Deal criado" value={flow?.pass_ok ?? '—'} tone="olive" foot={flow ? <><Delta>{flow.taxa_mql_deal}%</Delta> das passagens sem erro</> : undefined} />
         </div>
         {/* Barras */}
         <div style={{ background: 'var(--bg-paper)', border: '1px solid var(--rule)', padding: 20 }}>
@@ -169,6 +173,7 @@ export default function Overview({ dashboard, leadsStats, refreshKey, onNavigate
           <div>
             {[
               { l: 'Total de leads', v: jstats?.total, t: 'ink' as Tone },
+              { l: 'Passaram pelo Backup', v: jstats?.backup, t: 'crimson' as Tone },
               { l: 'Vieram do Framer', v: jstats?.framer, t: 'amber' as Tone },
               { l: 'Chegaram ao RD', v: jstats?.framer_to_rd, t: 'navy' as Tone },
               { l: 'Webinar (separado)', v: jstats?.webinar, t: 'plum' as Tone },

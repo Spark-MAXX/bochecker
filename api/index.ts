@@ -439,6 +439,11 @@ const U_SELECT: Record<LeadSourceKey, string> = {
 };
 const U_TABLE: Record<LeadSourceKey, string> = { framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
 
+// Mapa expandido usado pelos endpoints /api/funnel/delete e /api/funnel/reprocess.
+// Não fazemos "backup" fazer parte do UnifiedLead porque ele é entrada crua sem
+// enriquecimento, mas ainda queremos poder deletar/reprocessar linhas dele.
+const FUNNEL_TABLE: Record<string, string> = { ...U_TABLE, backup: 'leads_framer_backup' };
+
 function uClassify(source: LeadSourceKey, status: 'completo' | 'incompleto', routing: UnifiedLead['routing'], pipedrive: UnifiedLead['pipedrive'], pipe: PipeStatus | null): { stage: FunnelStage; health: Health } {
   if (status === 'incompleto') return { stage: 'incompleto', health: 'atencao' };
   if (source === 'rd_pipedrive') {
@@ -636,11 +641,11 @@ app.get('/api/leads/unified-stats', async (_req, res) => {
 app.post('/api/funnel/delete', webhookAuth, async (req, res) => {
   const db = getSupabase();
   if (!db) return res.status(503).json({ error: 'Database unavailable' });
-  const items: { source: LeadSourceKey; id: number | string }[] = Array.isArray(req.body?.items) ? req.body.items : [];
+  const items: { source: string; id: number | string }[] = Array.isArray(req.body?.items) ? req.body.items : [];
   if (!items.length) return res.status(400).json({ error: 'items vazio' });
   let deleted = 0; const errors: string[] = [];
   for (const it of items) {
-    const table = U_TABLE[it.source];
+    const table = FUNNEL_TABLE[it.source];
     if (!table || it.id === undefined || it.id === null) { errors.push(`item inválido: ${JSON.stringify(it)}`); continue; }
     const { error } = await db.from(table).delete().eq('id', it.id);
     if (error) errors.push(`${it.source}:${it.id} → ${error.message}`);
@@ -656,8 +661,8 @@ app.post('/api/funnel/reprocess', webhookAuth, async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database unavailable' });
   const url = process.env.N8N_REPROCESS_WEBHOOK_URL;
   if (!url) return res.status(501).json({ error: 'N8N_REPROCESS_WEBHOOK_URL não configurado na Vercel' });
-  const { source, id } = (req.body || {}) as { source: LeadSourceKey; id: number | string };
-  const table = U_TABLE[source];
+  const { source, id } = (req.body || {}) as { source: string; id: number | string };
+  const table = FUNNEL_TABLE[source];
   if (!table || id === undefined || id === null) return res.status(400).json({ error: 'source/id inválidos' });
   const { data: row, error } = await db.from(table).select('*').eq('id', id).maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
@@ -671,9 +676,10 @@ app.post('/api/funnel/reprocess', webhookAuth, async (req, res) => {
 
 // ── Duplicados por base (mesmo email repetido na mesma base) ─────────────────
 const DUP_SRC: Record<string, { table: string; email: string; nome: string; label: string }> = {
-  framer:       { table: 'leads_framer',       email: 'email',      nome: 'nome',      label: 'LP Framer' },
-  rd_pipedrive: { table: 'leads_rd_pipedrive', email: 'lead_email', nome: 'lead_nome', label: 'RD → Pipedrive' },
-  webinar:      { table: 'leads_webinar',      email: 'email',      nome: 'nome',      label: 'LP Webinar' },
+  backup:       { table: 'leads_framer_backup', email: 'email',      nome: 'nome',      label: 'Backup Framer' },
+  framer:       { table: 'leads_framer',        email: 'email',      nome: 'nome',      label: 'LP Framer' },
+  rd_pipedrive: { table: 'leads_rd_pipedrive',  email: 'lead_email', nome: 'lead_nome', label: 'RD → Pipedrive' },
+  webinar:      { table: 'leads_webinar',       email: 'email',      nome: 'nome',      label: 'LP Webinar' },
 };
 const dupNorm = (e: any) => (e ?? '').toString().trim().toLowerCase();
 
@@ -727,10 +733,11 @@ app.post('/api/funnel/dedupe', webhookAuth, async (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Jornada unificada (Framer → RD → processado → deal → status) ─────────────
-type JStage = 'form' | 'rd' | 'processado' | 'deal' | 'ganho' | 'perdido' | 'webinar';
-const J_LABEL: Record<JStage, string> = { form: 'Webhook Framer', rd: 'Chegou ao RD', processado: 'MQL (Fluxo Pipedrive)', deal: 'Deal criado', ganho: 'Deal ganho', perdido: 'Deal perdido', webinar: 'Inscrito (Webinar)' };
+// ── Jornada unificada (Backup → Framer → RD → processado → deal → status) ─────
+type JStage = 'backup' | 'form' | 'rd' | 'processado' | 'deal' | 'ganho' | 'perdido' | 'webinar';
+const J_LABEL: Record<JStage, string> = { backup: 'Backup Framer', form: 'Webhook Framer', rd: 'Chegou ao RD', processado: 'MQL (Fluxo Pipedrive)', deal: 'Deal criado', ganho: 'Deal ganho', perdido: 'Deal perdido', webinar: 'Inscrito (Webinar)' };
 const J_SEL = {
+  backup: 'id,criado_em,email,nome,telefone,empresa,page_url,utm_source,utm_medium,utm_campaign',
   framer: 'id,criado_em,email,nome,telefone,empresa,produto,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier',
   rd: 'id,criado_em,lead_email,lead_nome,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id',
   webinar: 'id,criado_em,email,nome,telefone,empresa,produto,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier',
@@ -740,15 +747,16 @@ const jKey = (email: any): string | null => { const e = jNorm(email); return e ?
 const jNewer = (a: string | null, b: string | null) => ((a || '') > (b || '') ? a : b);
 const jFill = (cur: any, val: any) => (cur === null || cur === undefined || cur === '' ? (val ?? cur) : cur);
 function jBlank(key: string): any {
-  return { uid: key, key, nome: null, email: null, telefone: null, empresa: null, produto: null, is_indicacao: false, utm_source: null, utm_medium: null, utm_campaign: null, created_at: null, last_at: null, has_framer: false, has_rd: false, has_webinar: false, framer_count: 0, rd_count: 0, webinar_count: 0, processado: null, rota_definida: null, rota_encontrada: null, motivo_rota: null, destino_pipeline: null, destino_stage: null, destino_owner: null, person_id: null, deal_id: null, pipe: null, reached: { form: false, rd: false, processado: false, deal: false }, stage: 'form', stage_label: '', health: 'ok', stalled: null, dup_bases: { framer: 0, rd_pipedrive: 0, webinar: 0 }, refs: [] };
+  return { uid: key, key, nome: null, email: null, telefone: null, empresa: null, produto: null, is_indicacao: false, utm_source: null, utm_medium: null, utm_campaign: null, created_at: null, last_at: null, has_backup: false, has_framer: false, has_rd: false, has_webinar: false, backup_count: 0, framer_count: 0, rd_count: 0, webinar_count: 0, processado: null, rota_definida: null, rota_encontrada: null, motivo_rota: null, destino_pipeline: null, destino_stage: null, destino_owner: null, person_id: null, deal_id: null, pipe: null, reached: { backup: false, form: false, rd: false, processado: false, deal: false }, stage: 'backup', stage_label: '', health: 'ok', stalled: null, dup_bases: { backup: 0, framer: 0, rd_pipedrive: 0, webinar: 0 }, refs: [] };
 }
 function jClassify(j: any): void {
-  j.reached = { form: j.has_framer, rd: j.has_rd, processado: !!j.processado || !!j.deal_id, deal: !!j.deal_id };
+  j.reached = { backup: j.has_backup, form: j.has_framer, rd: j.has_rd, processado: !!j.processado || !!j.deal_id, deal: !!j.deal_id };
   let stage: JStage; let health = 'ok'; let stalled: string | null = null;
   if (j.deal_id) { if (j.pipe?.status === 'won') stage = 'ganho'; else if (j.pipe?.status === 'lost') { stage = 'perdido'; health = 'atencao'; } else stage = 'deal'; }
   else if (j.has_rd && j.processado === true) { stage = 'processado'; health = 'atencao'; stalled = 'Virou MQL (Fluxo Pipedrive), mas sem deal criado'; }
   else if (j.has_rd) { stage = 'rd'; health = 'erro'; stalled = 'Chegou ao RD mas não virou MQL (Fluxo Pipedrive)'; }
   else if (j.has_framer) { stage = 'form'; health = 'atencao'; stalled = 'Webhook Framer recebido, mas não chegou ao RD'; }
+  else if (j.has_backup) { stage = 'backup'; health = 'erro'; stalled = 'Caiu no backup do Framer, mas não virou lead qualificado (leads_framer)'; }
   else if (j.has_webinar) { stage = 'webinar'; }
   else { stage = 'form'; }
   j.stage = stage; j.stage_label = J_LABEL[stage]; j.health = health; j.stalled = stalled;
@@ -756,9 +764,21 @@ function jClassify(j: any): void {
 async function jFetch(db: SupabaseClient, opts: any = {}): Promise<{ data: any[]; total: number }> {
   const fromDt = opts.from || new Date(Date.now() - 30 * 86400_000).toISOString();
   const q = (table: string, sel: string) => { let b = db.from(table).select(sel).gte('criado_em', fromDt).order('criado_em', { ascending: false }).limit(5000); if (opts.to) b = b.lte('criado_em', opts.to); return b; };
-  const [fr, rd, wb] = await Promise.all([q('leads_framer', J_SEL.framer), q('leads_rd_pipedrive', J_SEL.rd), q('leads_webinar', J_SEL.webinar)]);
+  const [bk, fr, rd, wb] = await Promise.all([
+    q('leads_framer_backup', J_SEL.backup),
+    q('leads_framer', J_SEL.framer),
+    q('leads_rd_pipedrive', J_SEL.rd),
+    q('leads_webinar', J_SEL.webinar),
+  ]);
   const map = new Map<string, any>();
   const get = (k: string) => { let j = map.get(k); if (!j) { j = jBlank(k); map.set(k, j); } return j; };
+  for (const r of (bk.data as any[]) || []) {
+    const k = jKey(r.email); if (!k) continue; const j = get(k); j.has_backup = true; j.backup_count++;
+    j.nome = jFill(j.nome, r.nome); j.email = jFill(j.email, r.email); j.telefone = jFill(j.telefone, r.telefone); j.empresa = jFill(j.empresa, r.empresa);
+    j.utm_source = jFill(j.utm_source, r.utm_source); j.utm_medium = jFill(j.utm_medium, r.utm_medium); j.utm_campaign = jFill(j.utm_campaign, r.utm_campaign);
+    j.created_at = j.created_at ? (j.created_at < r.criado_em ? j.created_at : r.criado_em) : r.criado_em; j.last_at = jNewer(j.last_at, r.criado_em);
+    j.refs.push({ source: 'backup', id: r.id, criado_em: r.criado_em ?? null });
+  }
   for (const r of (fr.data as any[]) || []) {
     const k = jKey(r.email); if (!k) continue; const j = get(k); j.has_framer = true; j.framer_count++;
     j.nome = jFill(j.nome, r.nome); j.email = jFill(j.email, r.email); j.telefone = jFill(j.telefone, r.telefone); j.empresa = jFill(j.empresa, r.empresa); j.produto = jFill(j.produto, r.produto);
@@ -793,12 +813,20 @@ async function jFetch(db: SupabaseClient, opts: any = {}): Promise<{ data: any[]
       for (const j of all) { if (j.deal_id == null) continue; const s = byDeal.get(String(j.deal_id)); if (!s) continue; j.pipe = { status: s.status ?? null, stage_id: s.stage_id ?? null, valor: s.value ?? null, won_at: s.won_time ?? null, lost_at: s.lost_time ?? null, lost_reason: s.lost_reason ?? null, atualizado_em: s.update_time ?? null }; }
     } catch { /* sem deals_snapshot */ }
   }
-  for (const j of all) { j.dup_bases = { framer: j.framer_count > 1 ? j.framer_count : 0, rd_pipedrive: j.rd_count > 1 ? j.rd_count : 0, webinar: j.webinar_count > 1 ? j.webinar_count : 0 }; jClassify(j); }
+  for (const j of all) {
+    j.dup_bases = {
+      backup: j.backup_count > 1 ? j.backup_count : 0,
+      framer: j.framer_count > 1 ? j.framer_count : 0,
+      rd_pipedrive: j.rd_count > 1 ? j.rd_count : 0,
+      webinar: j.webinar_count > 1 ? j.webinar_count : 0,
+    };
+    jClassify(j);
+  }
   let filtered = all;
   if (opts.stage) filtered = filtered.filter((j) => j.stage === opts.stage);
   if (opts.health) filtered = filtered.filter((j) => j.health === opts.health);
   if (opts.problemOnly) filtered = filtered.filter((j) => j.health !== 'ok');
-  if (opts.dupOnly) filtered = filtered.filter((j) => j.dup_bases.framer || j.dup_bases.rd_pipedrive || j.dup_bases.webinar);
+  if (opts.dupOnly) filtered = filtered.filter((j) => j.dup_bases.backup || j.dup_bases.framer || j.dup_bases.rd_pipedrive || j.dup_bases.webinar);
   if (opts.search) { const s = String(opts.search).trim().toLowerCase(); filtered = filtered.filter((j) => (j.email || '').toLowerCase().includes(s) || (j.nome || '').toLowerCase().includes(s) || (j.empresa || '').toLowerCase().includes(s)); }
   filtered.sort((a, b) => ((a.last_at || '') < (b.last_at || '') ? 1 : -1));
   return { data: filtered.slice(0, opts.limit ?? 300), total: filtered.length };
@@ -823,18 +851,23 @@ app.get('/api/journey/stats', async (req, res) => {
   try {
     const { data: js } = await jFetch(db, { from: (req.query as any).from, to: (req.query as any).to, limit: 1_000_000 });
     const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0);
+    const backup = js.filter((j) => j.has_backup).length;
+    const backup_to_framer = js.filter((j) => j.has_backup && j.has_framer).length;
     const framer = js.filter((j) => j.has_framer).length;
     const framer_to_rd = js.filter((j) => j.has_framer && j.has_rd).length;
     const mql = js.filter((j) => j.has_framer && j.has_rd && (j.processado === true || !!j.deal_id)).length;
     const deal = js.filter((j) => j.has_framer && j.has_rd && !!j.deal_id).length;
     const rd = js.filter((j) => j.has_rd).length;
     res.json({
-      total: js.length, framer, framer_to_rd, rd, rd_direct: js.filter((j) => j.has_rd && !j.has_framer).length, processado: mql, deal,
+      total: js.length, backup, backup_to_framer,
+      framer, framer_to_rd, rd, rd_direct: js.filter((j) => j.has_rd && !j.has_framer).length, processado: mql, deal,
       aberto: js.filter((j) => j.has_framer && j.deal_id && j.stage === 'deal').length, ganho: js.filter((j) => j.has_framer && j.stage === 'ganho').length, perdido: js.filter((j) => j.has_framer && j.stage === 'perdido').length,
       webinar: js.filter((j) => j.has_webinar).length,
+      leak_backup_sem_framer: js.filter((j) => j.has_backup && !j.has_framer).length,
       leak_framer_sem_rd: js.filter((j) => j.has_framer && !j.has_rd).length,
       leak_rd_sem_proc: js.filter((j) => j.has_framer && j.has_rd && j.processado !== true && !j.deal_id).length,
       leak_proc_sem_deal: js.filter((j) => j.has_framer && j.has_rd && j.processado === true && !j.deal_id).length,
+      taxa_backup_framer: pct(backup_to_framer, backup),
       taxa_framer_rd: pct(framer_to_rd, framer), taxa_rd_proc: pct(mql, framer_to_rd), taxa_proc_deal: pct(deal, mql),
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -1149,8 +1182,12 @@ app.get('/api/journey/flow-stats', async (req, res) => {
   let q = db.from('n8n_executions').select('workflow_id,status,started_at');
   if (from) q = q.gte('started_at', from);
   if (to) q = q.lte('started_at', to);
-  const { data, error } = await q;
+  let bkQ = db.from('leads_framer_backup').select('id', { count: 'exact', head: true });
+  if (from) bkQ = bkQ.gte('criado_em', from);
+  if (to) bkQ = bkQ.lte('criado_em', to);
+  const [{ data, error }, bkRes] = await Promise.all([q, bkQ]);
   if (error) return res.status(500).json({ error: error.message });
+  const backup_total = bkRes.count || 0;
   const norm = (w: any) => (w || '').toString().replace(/^=/, '');
   let framer_total = 0, framer_ok = 0, pass_total = 0, pass_ok = 0;
   for (const e of (data as any[]) || []) {
@@ -1160,8 +1197,10 @@ app.get('/api/journey/flow-stats', async (req, res) => {
   }
   const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0);
   res.json({
+    backup_total,
     framer_total, framer_ok, pass_total, pass_ok,
     framer_falhou: framer_total - framer_ok, pass_falhou: pass_total - pass_ok,
+    taxa_backup_framer: pct(framer_total, backup_total),
     taxa_framer_ok: pct(framer_ok, framer_total), taxa_rd_mql: pct(pass_total, framer_ok), taxa_mql_deal: pct(pass_ok, pass_total),
   });
 });

@@ -13,9 +13,10 @@ const HEALTH: Record<Health, { color: string; label: string; icon: React.ReactNo
   erro:    { color: '#E08369', label: 'Travou', icon: <XCircle className="h-2.5 w-2.5" /> },
 };
 const STAGE_COLOR: Record<JourneyStage, string> = {
-  form: '#D49555', rd: '#E08369', processado: '#D49555', deal: '#BD8AA8', ganho: '#A8B782', perdido: '#9B9690', webinar: '#7CA5DA',
+  backup: '#B0454B', form: '#D49555', rd: '#E08369', processado: '#D49555', deal: '#BD8AA8', ganho: '#A8B782', perdido: '#9B9690', webinar: '#7CA5DA',
 };
 const STEPS = [
+  { key: 'backup', label: 'Backup' },
   { key: 'form', label: 'Framer' },
   { key: 'rd', label: 'RD' },
   { key: 'processado', label: 'MQL' },
@@ -129,9 +130,9 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
   };
 
   const exportCsv = () => {
-    const head = ['nome', 'email', 'telefone', 'empresa', 'estagio', 'saude', 'parou_em', 'framer', 'rd', 'processado', 'deal_id', 'status_pipe', 'recebido'];
+    const head = ['nome', 'email', 'telefone', 'empresa', 'estagio', 'saude', 'parou_em', 'backup', 'framer', 'rd', 'processado', 'deal_id', 'status_pipe', 'recebido'];
     const esc = (v: any) => `"${(v ?? '').toString().replace(/"/g, '""')}"`;
-    const lines = rows.map((j) => [j.nome, j.email, j.telefone, j.empresa, j.stage_label, j.health, j.stalled || '', j.has_framer ? 'sim' : '', j.has_rd ? 'sim' : '', j.processado ? 'sim' : '', j.deal_id || '', j.pipe?.status || '', j.created_at].map(esc).join(','));
+    const lines = rows.map((j) => [j.nome, j.email, j.telefone, j.empresa, j.stage_label, j.health, j.stalled || '', j.has_backup ? 'sim' : '', j.has_framer ? 'sim' : '', j.has_rd ? 'sim' : '', j.processado ? 'sim' : '', j.deal_id || '', j.pipe?.status || '', j.created_at].map(esc).join(','));
     const csv = [head.join(','), ...lines].join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a'); a.href = url; a.download = `jornada_${new Date().toISOString().slice(0, 10)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -163,12 +164,13 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
         {flow && (
           <div className="p-4 space-y-1.5">
             {[
-              { label: 'Webhook Framer', val: flow.framer_total, color: '#D49555', sub: 'gatilho do forms disparou' },
+              { label: 'Backup Framer', val: flow.backup_total ?? 0, color: '#B0454B', sub: 'captura crua (leads_framer_backup)' },
+              { label: 'Webhook Framer', val: flow.framer_total, color: '#D49555', sub: flow.backup_total ? `${flow.taxa_backup_framer ?? 0}% do backup viraram lead` : 'gatilho do forms disparou' },
               { label: 'Chegou ao RD', val: flow.framer_ok, color: '#7CA5DA', sub: `${flow.taxa_framer_ok}% concluíram sem erro` },
               { label: 'MQL (Fluxo Pipedrive)', val: flow.pass_total, color: '#BD8AA8', sub: `iniciou a passagem · ${flow.taxa_rd_mql}% do RD` },
               { label: 'Deal criado', val: flow.pass_ok, color: '#A8B782', sub: `${flow.taxa_mql_deal}% das passagens sem erro` },
             ].map((s) => {
-              const max = Math.max(flow.framer_total, 1);
+              const max = Math.max(flow.backup_total ?? 0, flow.framer_total, 1);
               return (
                 <div key={s.label} style={{ display: 'grid', gridTemplateColumns: '170px 1fr 150px', alignItems: 'center', gap: 12 }}>
                   <span style={{ fontSize: 12, color: 'var(--ink)' }}>{s.label}</span>
@@ -209,6 +211,7 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
             </div>
             <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value as any)} className="border rounded px-2 py-1 text-[10px] font-bold uppercase outline-none cursor-pointer" style={{ backgroundColor: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-2)' }}>
               <option value="">Estágio: todos</option>
+              <option value="backup">Só no backup (parou)</option>
               <option value="form">Webhook Framer (parou)</option>
               <option value="rd">Chegou ao RD (travou)</option>
               <option value="processado">MQL s/ deal</option>
@@ -275,7 +278,7 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
                             <span style={{ width: 7, height: 7, borderRadius: 999, background: hm.color }} title={hm.label} />
                             <span className="inline-flex items-center px-2 py-0.5 rounded font-mono" style={{ fontSize: 10, fontWeight: 600, border: `1px solid ${STAGE_COLOR[j.stage]}66`, color: STAGE_COLOR[j.stage], backgroundColor: `${STAGE_COLOR[j.stage]}18` }}>{j.stage_label}</span>
                           </span>
-                          {(j.dup_bases.framer || j.dup_bases.rd_pipedrive || j.dup_bases.webinar) ? <span className="ml-1 px-1 py-0.5 rounded" style={{ fontSize: 8, fontWeight: 700, backgroundColor: 'rgba(212,149,85,0.15)', color: '#D49555' }} title="Tem duplicados na mesma base">DUP</span> : null}
+                          {(j.dup_bases.backup || j.dup_bases.framer || j.dup_bases.rd_pipedrive || j.dup_bases.webinar) ? <span className="ml-1 px-1 py-0.5 rounded" style={{ fontSize: 8, fontWeight: 700, backgroundColor: 'rgba(212,149,85,0.15)', color: '#D49555' }} title="Tem duplicados na mesma base">DUP</span> : null}
                         </td>
                         <td className="p-3">
                           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{j.nome || <span style={{ color: 'var(--text-4)' }}>—</span>}</div>
@@ -309,10 +312,10 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
                                   <Field label="Status deal" value={j.pipe?.status || null} />
                                 </div>
                               )}
-                              {(j.dup_bases.framer || j.dup_bases.rd_pipedrive || j.dup_bases.webinar) ? (
+                              {(j.dup_bases.backup || j.dup_bases.framer || j.dup_bases.rd_pipedrive || j.dup_bases.webinar) ? (
                                 <div className="flex flex-wrap items-center gap-2 font-mono" style={{ fontSize: 10, color: '#D49555' }}>
                                   <Copy className="h-3 w-3" /> Duplicado:
-                                  {(['framer', 'rd_pipedrive', 'webinar'] as const).map((b) => (j.dup_bases[b] > 1 ? (
+                                  {(['backup', 'framer', 'rd_pipedrive', 'webinar'] as const).map((b) => (j.dup_bases[b] > 1 ? (
                                     <button key={b} onClick={(e) => { e.stopPropagation(); dedupeBase(j, b); }} className="px-2 py-0.5 rounded border" style={{ borderColor: 'rgba(212,149,85,0.5)', color: 'var(--amber)' }}>{b}: {j.dup_bases[b]}× · manter recente</button>
                                   ) : null))}
                                 </div>
@@ -359,7 +362,8 @@ function Steps({ j }: { j: JourneyLead }) {
 
 function Timeline({ j }: { j: JourneyLead }) {
   const events: { when: string | null; label: string; on: boolean }[] = [
-    { when: j.has_framer ? j.created_at : null, label: 'Webhook Framer disparou com os dados', on: j.reached.form },
+    { when: j.has_backup ? j.created_at : null, label: 'Caiu no backup do Framer (captura crua)', on: j.reached.backup },
+    { when: j.has_framer ? j.last_at : null, label: 'Virou lead qualificado no leads_framer', on: j.reached.form },
     { when: j.has_rd ? j.last_at : null, label: 'Chegou ao RD (execução concluída sem erro)', on: j.reached.rd },
     { when: null, label: 'MQL (Fluxo Pipedrive)', on: j.reached.processado },
     { when: null, label: j.deal_id ? `Deal criado — fluxo RD → Pipedrive concluído (#${j.deal_id})` : 'Deal criado (fluxo RD → Pipedrive concluído)', on: j.reached.deal },

@@ -3,14 +3,15 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type DupSource = 'framer' | 'rd_pipedrive' | 'webinar';
+export type DupSource = 'backup' | 'framer' | 'rd_pipedrive' | 'webinar';
 
 const SRC: Record<DupSource, { table: string; email: string; nome: string }> = {
-  framer:       { table: 'leads_framer',       email: 'email',      nome: 'nome' },
-  rd_pipedrive: { table: 'leads_rd_pipedrive', email: 'lead_email', nome: 'lead_nome' },
-  webinar:      { table: 'leads_webinar',      email: 'email',      nome: 'nome' },
+  backup:       { table: 'leads_framer_backup', email: 'email',      nome: 'nome' },
+  framer:       { table: 'leads_framer',        email: 'email',      nome: 'nome' },
+  rd_pipedrive: { table: 'leads_rd_pipedrive',  email: 'lead_email', nome: 'lead_nome' },
+  webinar:      { table: 'leads_webinar',       email: 'email',      nome: 'nome' },
 };
-const LABEL: Record<DupSource, string> = { framer: 'LP Framer', rd_pipedrive: 'RD → Pipedrive', webinar: 'LP Webinar' };
+const LABEL: Record<DupSource, string> = { backup: 'Backup Framer', framer: 'LP Framer', rd_pipedrive: 'RD → Pipedrive', webinar: 'LP Webinar' };
 const norm = (e: any) => (e ?? '').toString().trim().toLowerCase();
 
 export interface DupCopy { id: number | string; criado_em: string | null; nome: string | null; email: string | null; }
