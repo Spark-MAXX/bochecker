@@ -40,6 +40,12 @@ export interface Diagnostico {
   detalhe_original?: string;
 }
 
+export interface LeadPath {
+  backup: boolean;       // leads_framer_backup — captura crua do form
+  framer: boolean;       // leads_framer — lead validado / enriquecido
+  rd_pipedrive: boolean; // leads_rd_pipedrive — chegou na passagem
+}
+
 export interface Alert {
   id: string;
   tipo: 'lead_incompleto' | 'erro_tecnico';
@@ -58,6 +64,7 @@ export interface Alert {
   resolved_at?: string;
   resolved_by?: string;
   created_at: string;
+  lead_path?: LeadPath | null;
 }
 
 export interface Lead {

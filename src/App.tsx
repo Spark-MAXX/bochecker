@@ -95,6 +95,7 @@ export default function App() {
     const subscription = supabase.channel('spark_pipeline')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'n8n_executions' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads_framer_backup' }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads_framer' }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads_rd_pipedrive' }, bump)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads_webinar' }, bump)

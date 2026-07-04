@@ -159,6 +159,36 @@ const WORKFLOW_NAMES: Record<string, string> = {
   'J2rdIrv7C7gILmpk': 'Leads LP - Framer',
 };
 
+// Workflows do caminho Framer → RD → Pipedrive. Alertas do BO por padrão são
+// restritos a estes IDs; passar ?path=all inclui todos os workflows.
+const FRAMER_TO_PIPE_WORKFLOWS = ['J2rdIrv7C7gILmpk', 'VVdWQERBqJsPxeDo'];
+
+// Cruza o email do lead com as 3 bases (backup → leads_framer → leads_rd_pipedrive)
+// e devolve lead_path para cada alerta, usado pra desenhar o caminho no BO Alert.
+async function enrichAlertsWithLeadPath(db: SupabaseClient, alerts: any[]) {
+  if (!alerts.length) return alerts;
+  const norm = (v: any) => (v || '').toString().trim().toLowerCase();
+  const emails = Array.from(new Set(alerts.map((a) => norm(a.lead_email)).filter(Boolean)));
+  if (!emails.length) return alerts.map((a) => ({ ...a, lead_path: null }));
+
+  const [bk, fr, rd] = await Promise.all([
+    db.from('leads_framer_backup').select('email').in('email', emails),
+    db.from('leads_framer').select('email').in('email', emails),
+    db.from('leads_rd_pipedrive').select('lead_email').in('lead_email', emails),
+  ]);
+  const inBackup = new Set((bk.data || []).map((r: any) => norm(r.email)));
+  const inFramer = new Set((fr.data || []).map((r: any) => norm(r.email)));
+  const inRd     = new Set((rd.data || []).map((r: any) => norm(r.lead_email)));
+
+  return alerts.map((a) => {
+    const k = norm(a.lead_email);
+    return {
+      ...a,
+      lead_path: k ? { backup: inBackup.has(k), framer: inFramer.has(k), rd_pipedrive: inRd.has(k) } : null,
+    };
+  });
+}
+
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -841,14 +871,16 @@ app.post('/api/alerts/erro-tecnico', webhookAuth, async (req, res) => {
 app.get('/api/alerts', async (req, res) => {
   const db = getSupabase();
   if (!db) return res.status(503).json({ error: 'Database unavailable' });
-  const { status, tipo, page = '1', limit = '50' } = req.query;
+  const { status, tipo, page = '1', limit = '50', path } = req.query;
   let q = db.from('alerts').select('*', { count: 'exact' });
   if (status) q = q.eq('status', status);
   if (tipo) q = q.eq('tipo', tipo);
+  if (path !== 'all') q = q.in('workflow_id', FRAMER_TO_PIPE_WORKFLOWS);
   const from = (Number(page) - 1) * Number(limit);
   const { data, count, error } = await q.order('created_at', { ascending: false }).range(from, from + Number(limit) - 1);
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ data, count, page: Number(page), limit: Number(limit) });
+  const enriched = await enrichAlertsWithLeadPath(db, data || []);
+  res.json({ data: enriched, count, page: Number(page), limit: Number(limit) });
 });
 
 app.patch('/api/alerts/:id/resolve', async (req, res) => {
@@ -1070,7 +1102,10 @@ app.post('/api/n8n/sync', async (req, res) => {
         const { data: ex } = await db.from('n8n_executions').select('id').eq('execution_id', String(exec.id)).maybeSingle();
         if (ex) continue;
         let alertId = null;
-        if (exec.status === 'error' || exec.status === 'crashed') {
+        // Só gera alerta para falhas do caminho Framer → RD → Pipedrive.
+        // Falhas de outros workflows continuam no histórico de execuções, mas
+        // ficam fora do BO Alert.
+        if ((exec.status === 'error' || exec.status === 'crashed') && FRAMER_TO_PIPE_WORKFLOWS.includes(wfId)) {
           const errorMsg = exec.data?.resultData?.error?.message || 'Execução falhou';
           const nodeName = exec.data?.resultData?.lastNodeExecuted || null;
           const diagnostico = {

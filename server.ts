@@ -29,6 +29,11 @@ const WORKFLOW_NAMES: Record<string, string> = {
   'J2rdIrv7C7gILmpk': 'Leads LP - Framer',
 };
 
+// Workflows que compõem o caminho Framer → RD → Pipedrive.
+// Alertas do BO por padrão são filtrados para estes IDs (o "Programa de indicação
+// interna" fica fora — pode ser visto passando ?path=all).
+const FRAMER_TO_PIPE_WORKFLOWS = ['J2rdIrv7C7gILmpk', 'VVdWQERBqJsPxeDo'];
+
 // Lead fields required per workflow
 const REQUIRED_LEAD_FIELDS: Record<string, string[]> = {
   'J2rdIrv7C7gILmpk': ['email', 'nome', 'produto'],
@@ -72,8 +77,10 @@ async function syncN8nExecutions() {
 
         let alertId: string | null = null;
 
-        // Create alert for failed executions
-        if (exec.status === 'error' || exec.status === 'crashed') {
+        // Create alert for failed executions — só para o caminho Framer→RD→Pipedrive.
+        // Falhas em outros workflows entram no histórico de execuções, mas não geram
+        // alerta no BO.
+        if ((exec.status === 'error' || exec.status === 'crashed') && FRAMER_TO_PIPE_WORKFLOWS.includes(workflowId)) {
           const errorMsg = exec.data?.resultData?.error?.message
             || exec.data?.resultData?.error?.description
             || 'Execução falhou sem mensagem de erro';
@@ -147,6 +154,35 @@ async function syncN8nExecutions() {
       logger.error({ workflowId, err }, 'Failed to sync n8n workflow executions');
     }
   }
+}
+
+// Para cada alerta, cruza o email do lead com as 3 bases do caminho Framer→RD→Pipedrive
+// e devolve lead_path = { backup, framer, rd_pipedrive } — usado para desenhar o caminho
+// do lead na tela de Alertas.
+async function enrichAlertsWithLeadPath(db: ReturnType<typeof getSupabaseAdmin>, alerts: any[]) {
+  if (!db || !alerts.length) return alerts;
+  const emails = Array.from(new Set(
+    alerts.map((a) => (a.lead_email || '').toString().trim().toLowerCase()).filter(Boolean),
+  ));
+  if (!emails.length) return alerts.map((a) => ({ ...a, lead_path: null }));
+
+  const [bk, fr, rd] = await Promise.all([
+    db.from('leads_framer_backup').select('email').in('email', emails),
+    db.from('leads_framer').select('email').in('email', emails),
+    db.from('leads_rd_pipedrive').select('lead_email').in('lead_email', emails),
+  ]);
+  const norm = (v: any) => (v || '').toString().trim().toLowerCase();
+  const inBackup = new Set((bk.data || []).map((r: any) => norm(r.email)));
+  const inFramer = new Set((fr.data || []).map((r: any) => norm(r.email)));
+  const inRd     = new Set((rd.data || []).map((r: any) => norm(r.lead_email)));
+
+  return alerts.map((a) => {
+    const k = norm(a.lead_email);
+    return {
+      ...a,
+      lead_path: k ? { backup: inBackup.has(k), framer: inFramer.has(k), rd_pipedrive: inRd.has(k) } : null,
+    };
+  });
 }
 
 async function startServer() {
@@ -275,17 +311,20 @@ async function startServer() {
   });
 
   // GET /api/alerts
+  // Por padrão só retorna alertas do caminho Framer → RD → Pipedrive.
+  // Passe ?path=all para incluir os demais workflows.
   app.get('/api/alerts', async (req, res) => {
     const supabaseAdmin = getSupabaseAdmin();
     if (!supabaseAdmin) return res.status(503).json({ error: 'Database service unavailable' });
 
-    const { status, tipo, from, to, page = '1', limit = '50' } = req.query;
+    const { status, tipo, from, to, page = '1', limit = '50', path } = req.query;
     let query = supabaseAdmin.from('alerts').select('*', { count: 'exact' });
 
     if (status) query = query.eq('status', status);
     if (tipo) query = query.eq('tipo', tipo);
     if (from) query = query.gte('created_at', from);
     if (to) query = query.lte('created_at', to);
+    if (path !== 'all') query = query.in('workflow_id', FRAMER_TO_PIPE_WORKFLOWS);
 
     const fromIdx = (Number(page) - 1) * Number(limit);
     const toIdx = fromIdx + Number(limit) - 1;
@@ -295,7 +334,9 @@ async function startServer() {
       .range(fromIdx, toIdx);
 
     if (error) return res.status(500).json({ error: error.message });
-    res.json({ data, count, page: Number(page), limit: Number(limit) });
+
+    const enriched = await enrichAlertsWithLeadPath(supabaseAdmin, data || []);
+    res.json({ data: enriched, count, page: Number(page), limit: Number(limit) });
   });
 
   // PATCH /api/alerts/:id/resolve

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { format } from 'date-fns';
 import { ExternalLink, CheckCircle2, ChevronDown, ChevronRight, AlertTriangle, Zap } from 'lucide-react';
-import { type Alert } from '../lib/schemas';
+import { type Alert, type LeadPath } from '../lib/schemas';
 
 interface AlertsTableProps {
   alerts: Alert[];
@@ -24,6 +24,45 @@ function MotivoTag({ motivo }: { motivo: string }) {
       className="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold">
       {motivo}
     </span>
+  );
+}
+
+// Mini-caminho do lead: backup ● leads_framer ● rd_pipedrive.
+// Bola cheia = passou por essa base, bola vazia = não chegou lá.
+function LeadPathIndicator({ path }: { path?: LeadPath | null }) {
+  if (!path) return null;
+  const steps: { key: keyof LeadPath; label: string }[] = [
+    { key: 'backup',       label: 'backup' },
+    { key: 'framer',       label: 'leads_framer' },
+    { key: 'rd_pipedrive', label: 'rd_pipedrive' },
+  ];
+  return (
+    <div className="flex items-center gap-1 mt-1" title="Caminho do lead: backup → leads_framer → leads_rd_pipedrive">
+      {steps.map((s, i) => {
+        const on = path[s.key];
+        return (
+          <React.Fragment key={s.key}>
+            {i > 0 && (
+              <span style={{
+                width: 8, height: 1,
+                background: on && path[steps[i - 1].key] ? 'var(--olive, #A8B782)' : 'var(--rule, #D5D3CE)',
+              }} />
+            )}
+            <span className="flex items-center gap-1">
+              <span style={{
+                width: 7, height: 7, borderRadius: 999,
+                background: on ? 'var(--olive, #A8B782)' : 'transparent',
+                border: `1px solid ${on ? 'var(--olive, #A8B782)' : 'var(--rule-strong, #B8B6B0)'}`,
+              }} />
+              <span className="font-mono uppercase" style={{
+                fontSize: 8, letterSpacing: '0.05em',
+                color: on ? 'var(--text-2)' : 'var(--text-4)',
+              }}>{s.label}</span>
+            </span>
+          </React.Fragment>
+        );
+      })}
+    </div>
   );
 }
 
@@ -155,6 +194,7 @@ export default function AlertsTable({ alerts, onResolve }: AlertsTableProps) {
                       {alert.lead_nome && (
                         <div className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>{alert.lead_nome}</div>
                       )}
+                      <LeadPathIndicator path={alert.lead_path} />
                     </td>
                     <td className="p-4 max-w-sm">
                       <DiagnosticoPanel alert={alert} />
