@@ -3,9 +3,21 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   GitBranch, CheckCircle2, AlertTriangle, XCircle, Search, ChevronDown, ChevronRight,
-  Mail, Phone, Building2, Package, RefreshCcw, Filter, Copy, Trash2, Download, ExternalLink,
+  Mail, Phone, Building2, Package, RefreshCcw, Filter, Copy, Trash2, Download, ExternalLink, Gauge,
 } from 'lucide-react';
 import type { JourneyLead, JourneyStats, JourneyStage, Health } from '../lib/journey';
+import { GRADE_COLORS, gradeFromScore } from '../lib/journey';
+
+// Perfil A/B/C/D do RD (matriz Spark). Faixa da nota 0–10.
+const GRADE_META: Record<'A' | 'B' | 'C' | 'D', { label: string; faixa: string }> = {
+  A: { label: 'Ótimo perfil', faixa: '7,5–10' },
+  B: { label: 'Bom perfil', faixa: '5,0–7,4' },
+  C: { label: 'Perfil médio', faixa: '2,5–4,9' },
+  D: { label: 'Perfil baixo', faixa: '0–2,4' },
+};
+const gradeOf = (j: JourneyLead): 'A' | 'B' | 'C' | 'D' | null =>
+  (j.score?.grade as ('A' | 'B' | 'C' | 'D' | undefined)) || gradeFromScore(j.score?.value ?? null);
+const gradeColor = (g: string | null): string => (g && GRADE_COLORS[g]) || 'var(--rule-strong)';
 
 const HEALTH: Record<Health, { color: string; label: string; icon: React.ReactNode }> = {
   ok:      { color: '#A8B782', label: 'OK', icon: <CheckCircle2 className="h-2.5 w-2.5" /> },
@@ -129,9 +141,9 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
   };
 
   const exportCsv = () => {
-    const head = ['nome', 'email', 'telefone', 'empresa', 'estagio', 'saude', 'parou_em', 'framer', 'rd', 'processado', 'deal_id', 'status_pipe', 'recebido'];
+    const head = ['nome', 'email', 'telefone', 'empresa', 'estagio', 'perfil', 'nota', 'saude', 'parou_em', 'framer', 'rd', 'processado', 'deal_id', 'status_pipe', 'recebido'];
     const esc = (v: any) => `"${(v ?? '').toString().replace(/"/g, '""')}"`;
-    const lines = rows.map((j) => [j.nome, j.email, j.telefone, j.empresa, j.stage_label, j.health, j.stalled || '', j.has_framer ? 'sim' : '', j.has_rd ? 'sim' : '', j.processado ? 'sim' : '', j.deal_id || '', j.pipe?.status || '', j.created_at].map(esc).join(','));
+    const lines = rows.map((j) => [j.nome, j.email, j.telefone, j.empresa, j.stage_label, gradeOf(j) || '', j.score?.value ?? '', j.health, j.stalled || '', j.has_framer ? 'sim' : '', j.has_rd ? 'sim' : '', j.processado ? 'sim' : '', j.deal_id || '', j.pipe?.status || '', j.created_at].map(esc).join(','));
     const csv = [head.join(','), ...lines].join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a'); a.href = url; a.download = `jornada_${new Date().toISOString().slice(0, 10)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -260,7 +272,7 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 z-10" style={{ backgroundColor: 'var(--bg-soft)' }}>
                 <tr className="font-mono uppercase" style={{ fontSize: 10, color: 'var(--text-3)', borderBottom: '1px solid var(--rule)' }}>
-                  <th className="p-3 w-4" /><th className="p-3">Etapa atual</th><th className="p-3">Lead</th><th className="p-3">Jornada</th><th className="p-3">Recebido</th>
+                  <th className="p-3 w-4" /><th className="p-3">Etapa atual</th><th className="p-3">Perfil</th><th className="p-3">Lead</th><th className="p-3">Jornada</th><th className="p-3">Recebido</th>
                 </tr>
               </thead>
               <tbody>
@@ -277,6 +289,7 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
                           </span>
                           {(j.dup_bases.framer || j.dup_bases.rd_pipedrive || j.dup_bases.webinar) ? <span className="ml-1 px-1 py-0.5 rounded" style={{ fontSize: 8, fontWeight: 700, backgroundColor: 'rgba(212,149,85,0.15)', color: '#D49555' }} title="Tem duplicados na mesma base">DUP</span> : null}
                         </td>
+                        <td className="p-3 whitespace-nowrap"><ScoreBadge value={j.score?.value ?? null} grade={gradeOf(j)} /></td>
                         <td className="p-3">
                           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{j.nome || <span style={{ color: 'var(--text-4)' }}>—</span>}</div>
                           <div className="font-mono break-all" style={{ fontSize: 10, color: 'var(--text-2)' }}>{j.email || 'sem email'}</div>
@@ -287,8 +300,9 @@ export default function JourneyMonitor({ refreshKey = 0 }: { refreshKey?: number
                       </tr>
                       {isExp && (
                         <tr style={{ backgroundColor: 'var(--bg-soft)' }}>
-                          <td colSpan={5} className="px-6 py-4" style={{ borderLeft: `2px solid ${hm.color}` }}>
+                          <td colSpan={6} className="px-6 py-4" style={{ borderLeft: `2px solid ${hm.color}` }}>
                             <div className="space-y-3">
+                              <ScoreDetail j={j} />
                               <Timeline j={j} />
                               {j.stalled && <div className="font-mono" style={{ fontSize: 11, color: 'var(--crimson)' }}>⚠ {j.stalled}</div>}
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-3" style={{ fontSize: 11 }}>
@@ -374,6 +388,67 @@ function Timeline({ j }: { j: JourneyLead }) {
           {e.when && <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)' }}>· {format(new Date(e.when), 'dd/MM HH:mm')}</span>}
         </div>
       ))}
+    </div>
+  );
+}
+
+function ScoreBadge({ value, grade }: { value: number | null; grade: string | null }) {
+  if (value === null || value === undefined) return <span className="font-mono" style={{ fontSize: 10, color: 'var(--text-4)' }}>sem perfil</span>;
+  const color = gradeColor(grade);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center justify-center rounded font-mono" style={{ width: 26, height: 26, fontSize: 12, fontWeight: 700, backgroundColor: `${color}22`, color, border: `1px solid ${color}66` }}>{grade || '—'}</span>
+      <span className="font-mono" style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)' }}>{value.toFixed(1)}</span>
+    </span>
+  );
+}
+
+function ScoreDetail({ j }: { j: JourneyLead }) {
+  const value = j.score?.value ?? null;
+  const grade = gradeOf(j);
+  const color = gradeColor(grade);
+  const det: any = j.score_detail || null;
+  const meta = grade ? GRADE_META[grade] : null;
+  return (
+    <div className="rounded border p-3 space-y-2.5" style={{ borderColor: 'var(--rule)', backgroundColor: 'var(--bg-paper)' }}>
+      <div className="flex items-center gap-2">
+        <Gauge className="h-3.5 w-3.5" style={{ color: 'var(--text-3)' }} />
+        <span className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--text-3)' }}>Lead Scoring · Perfil RD</span>
+      </div>
+      {value === null ? (
+        <div className="font-mono" style={{ fontSize: 10, color: 'var(--amber)' }}>Sem perfil — lead ainda não pontuado no RD (aguardando o n8n gravar a nota).</div>
+      ) : (
+        <>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center justify-center rounded font-mono" style={{ width: 34, height: 34, fontSize: 15, fontWeight: 700, backgroundColor: `${color}22`, color, border: `1px solid ${color}66` }}>{grade || '—'}</span>
+            <div>
+              <div className="font-mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{value.toFixed(1)}<span style={{ fontSize: 10, color: 'var(--text-4)' }}> / 10</span></div>
+              {meta && <div className="font-mono" style={{ fontSize: 9, color: 'var(--text-3)' }}>{meta.label} · {meta.faixa}</div>}
+            </div>
+            {j.score?.scored_at && <span className="font-mono" style={{ fontSize: 9, color: 'var(--text-4)', marginLeft: 'auto' }}>pontuado {format(new Date(j.score.scored_at), 'dd/MM HH:mm')}</span>}
+          </div>
+          {det && (det.o_que_busca || det.frequencia || det.voce_e) && (
+            <div>
+              <div className="font-mono uppercase mb-1.5" style={{ fontSize: 9, letterSpacing: '0.08em', color: 'var(--text-4)' }}>Composição do perfil (nota × peso)</div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <PerfilTerm label="O que busca ×0,9" termo={det.o_que_busca?.termo} nota={det.o_que_busca?.nota} />
+                <PerfilTerm label="Frequência ×0,4" termo={det.frequencia?.termo} nota={det.frequencia?.nota} />
+                <PerfilTerm label="Você é ×0,1" termo={det.voce_e?.termo} nota={det.voce_e?.nota} />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function PerfilTerm({ label, termo, nota }: { label: string; termo?: string | null; nota?: number | null }) {
+  return (
+    <div className="p-2 rounded border font-mono" style={{ backgroundColor: 'var(--bg-soft)', borderColor: 'var(--border)' }}>
+      <div className="uppercase" style={{ fontSize: 8, letterSpacing: '0.06em', color: 'var(--text-4)' }}>{label}</div>
+      <div style={{ fontSize: 11, color: 'var(--ink)' }}>{termo || '—'}</div>
+      <div style={{ fontSize: 9, color: 'var(--text-3)' }}>nota: {nota ?? '—'}</div>
     </div>
   );
 }

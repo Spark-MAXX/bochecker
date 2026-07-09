@@ -702,15 +702,17 @@ type JStage = 'form' | 'rd' | 'processado' | 'deal' | 'ganho' | 'perdido' | 'web
 const J_LABEL: Record<JStage, string> = { form: 'Webhook Framer', rd: 'Chegou ao RD', processado: 'MQL (Fluxo Pipedrive)', deal: 'Deal criado', ganho: 'Deal ganho', perdido: 'Deal perdido', webinar: 'Inscrito (Webinar)' };
 const J_SEL = {
   framer: 'id,criado_em,email,nome,telefone,empresa,produto,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier',
-  rd: 'id,criado_em,lead_email,lead_nome,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id',
+  rd: 'id,criado_em,lead_email,lead_nome,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id,rd_lead_score,rd_lead_score_grade,rd_scored_at,rd_score_detail',
   webinar: 'id,criado_em,email,nome,telefone,empresa,produto,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier',
 };
+// Perfil A/B/C/D do RD (matriz Spark): A ≥7,5 · B ≥5 · C ≥2,5 · D <2,5.
+const jGrade = (v: number | null): 'A' | 'B' | 'C' | 'D' | null => (v === null || Number.isNaN(v) ? null : v >= 7.5 ? 'A' : v >= 5.0 ? 'B' : v >= 2.5 ? 'C' : 'D');
 const jNorm = (e: any) => (e ?? '').toString().trim().toLowerCase();
 const jKey = (email: any): string | null => { const e = jNorm(email); return e ? `e:${e}` : null; };
 const jNewer = (a: string | null, b: string | null) => ((a || '') > (b || '') ? a : b);
 const jFill = (cur: any, val: any) => (cur === null || cur === undefined || cur === '' ? (val ?? cur) : cur);
 function jBlank(key: string): any {
-  return { uid: key, key, nome: null, email: null, telefone: null, empresa: null, produto: null, is_indicacao: false, utm_source: null, utm_medium: null, utm_campaign: null, created_at: null, last_at: null, has_framer: false, has_rd: false, has_webinar: false, framer_count: 0, rd_count: 0, webinar_count: 0, processado: null, rota_definida: null, rota_encontrada: null, motivo_rota: null, destino_pipeline: null, destino_stage: null, destino_owner: null, person_id: null, deal_id: null, pipe: null, reached: { form: false, rd: false, processado: false, deal: false }, stage: 'form', stage_label: '', health: 'ok', stalled: null, dup_bases: { framer: 0, rd_pipedrive: 0, webinar: 0 }, refs: [] };
+  return { uid: key, key, nome: null, email: null, telefone: null, empresa: null, produto: null, is_indicacao: false, utm_source: null, utm_medium: null, utm_campaign: null, created_at: null, last_at: null, has_framer: false, has_rd: false, has_webinar: false, framer_count: 0, rd_count: 0, webinar_count: 0, processado: null, rota_definida: null, rota_encontrada: null, motivo_rota: null, destino_pipeline: null, destino_stage: null, destino_owner: null, person_id: null, deal_id: null, pipe: null, reached: { form: false, rd: false, processado: false, deal: false }, stage: 'form', stage_label: '', health: 'ok', stalled: null, dup_bases: { framer: 0, rd_pipedrive: 0, webinar: 0 }, score: null, score_detail: null, refs: [] };
 }
 function jClassify(j: any): void {
   j.reached = { form: j.has_framer, rd: j.has_rd, processado: !!j.processado || !!j.deal_id, deal: !!j.deal_id };
@@ -745,6 +747,11 @@ async function jFetch(db: SupabaseClient, opts: any = {}): Promise<{ data: any[]
     if (r.rota_encontrada !== null && r.rota_encontrada !== undefined) j.rota_encontrada = r.rota_encontrada;
     j.destino_pipeline = jFill(j.destino_pipeline, r.destino_pipeline_nome); j.destino_stage = jFill(j.destino_stage, r.destino_stage_nome); j.destino_owner = jFill(j.destino_owner, r.destino_owner_nome);
     if (r.pipedrive_person_id) j.person_id = r.pipedrive_person_id; if (r.pipedrive_deal_id) j.deal_id = r.pipedrive_deal_id;
+    if ((j.score === null || j.score.value === null) && r.rd_lead_score !== null && r.rd_lead_score !== undefined) {
+      const val = Number(r.rd_lead_score);
+      j.score = { value: Number.isNaN(val) ? null : val, grade: r.rd_lead_score_grade ?? jGrade(Number.isNaN(val) ? null : val), scored_at: r.rd_scored_at ?? null };
+      j.score_detail = r.rd_score_detail ?? null;
+    }
     j.created_at = j.created_at ? (j.created_at < r.criado_em ? j.created_at : r.criado_em) : r.criado_em; j.last_at = jNewer(j.last_at, r.criado_em);
     j.refs.push({ source: 'rd_pipedrive', id: r.id, criado_em: r.criado_em ?? null });
   }

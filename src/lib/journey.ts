@@ -14,6 +14,24 @@ export const JOURNEY_STAGE_LABEL: Record<JourneyStage, string> = {
 
 export interface JourneyRef { source: 'framer' | 'rd_pipedrive' | 'webinar'; id: number | string; criado_em: string | null; }
 
+// Lead Scoring nativo do RD Station. Vem das colunas rd_lead_score* de leads_rd_pipedrive,
+// gravadas pelo n8n. Null quando o lead ainda não foi pontuado.
+export interface LeadScore {
+  value: number | null;   // nota (escala do RD, 0–10)
+  grade: string | null;   // perfil A/B/C/D, se existir
+  scored_at: string | null;
+}
+
+// Perfil A/B/C/D do RD (matriz Spark) a partir da nota 0–10: A ≥7,5 · B ≥5 · C ≥2,5 · D <2,5.
+export const GRADE_COLORS: Record<string, string> = { A: '#A8B782', B: '#C7C08A', C: '#D49555', D: '#E08369' };
+export function gradeFromScore(value: number | null | undefined): 'A' | 'B' | 'C' | 'D' | null {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  if (value >= 7.5) return 'A';
+  if (value >= 5.0) return 'B';
+  if (value >= 2.5) return 'C';
+  return 'D';
+}
+
 export interface JourneyLead {
   uid: string; key: string;
   nome: string | null; email: string | null; telefone: string | null; empresa: string | null; produto: string | null;
@@ -29,6 +47,7 @@ export interface JourneyLead {
   reached: { form: boolean; rd: boolean; processado: boolean; deal: boolean };
   stage: JourneyStage; stage_label: string; health: Health; stalled: string | null;
   dup_bases: { framer: number; rd_pipedrive: number; webinar: number };
+  score: LeadScore | null; score_detail: any | null;
   refs: JourneyRef[];
 }
 
@@ -55,7 +74,7 @@ const newer = (a: string | null, b: string | null) => ((a || '') > (b || '') ? a
 
 const SEL = {
   framer: 'id,criado_em,email,nome,telefone,empresa,produto,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier',
-  rd: 'id,criado_em,lead_email,lead_nome,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id',
+  rd: 'id,criado_em,lead_email,lead_nome,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id,rd_lead_score,rd_lead_score_grade,rd_scored_at,rd_score_detail',
   webinar: 'id,criado_em,email,nome,telefone,empresa,produto,is_indicacao,utm_source,utm_medium,utm_campaign,conversion_identifier',
 };
 
@@ -68,7 +87,7 @@ function blank(key: string): JourneyLead {
     destino_pipeline: null, destino_stage: null, destino_owner: null, person_id: null, deal_id: null, pipe: null,
     reached: { form: false, rd: false, processado: false, deal: false },
     stage: 'form', stage_label: '', health: 'ok', stalled: null,
-    dup_bases: { framer: 0, rd_pipedrive: 0, webinar: 0 }, refs: [],
+    dup_bases: { framer: 0, rd_pipedrive: 0, webinar: 0 }, score: null, score_detail: null, refs: [],
   };
 }
 const fill = (cur: any, val: any) => (cur === null || cur === undefined || cur === '' ? (val ?? cur) : cur);
@@ -137,6 +156,12 @@ export async function fetchJourneys(db: SupabaseClient, opts: JourneyFilters = {
     j.destino_pipeline = fill(j.destino_pipeline, r.destino_pipeline_nome); j.destino_stage = fill(j.destino_stage, r.destino_stage_nome); j.destino_owner = fill(j.destino_owner, r.destino_owner_nome);
     if (r.pipedrive_person_id) j.person_id = r.pipedrive_person_id;
     if (r.pipedrive_deal_id) j.deal_id = r.pipedrive_deal_id;
+    // Nota do RD: guarda a da linha mais recente que tenha score (rows vêm criado_em desc).
+    if ((j.score === null || j.score.value === null) && r.rd_lead_score !== null && r.rd_lead_score !== undefined) {
+      const val = Number(r.rd_lead_score);
+      j.score = { value: Number.isNaN(val) ? null : val, grade: r.rd_lead_score_grade ?? gradeFromScore(val), scored_at: r.rd_scored_at ?? null };
+      j.score_detail = r.rd_score_detail ?? null;
+    }
     j.created_at = j.created_at ? (j.created_at < r.criado_em ? j.created_at : r.criado_em) : r.criado_em;
     j.last_at = newer(j.last_at, r.criado_em);
     j.refs.push({ source: 'rd_pipedrive', id: r.id, criado_em: r.criado_em ?? null });

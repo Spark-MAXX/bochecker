@@ -123,3 +123,19 @@ END $$;
 
 -- NOTA: as escritas (insert/update) são feitas pela API com a SUPABASE_SERVICE_ROLE_KEY,
 -- que ignora RLS. As policies acima liberam apenas LEITURA pública (dashboard via anon key).
+
+-- ── Lead Scoring (Perfil nativo do RD Station) ───────────────────────────────
+-- A tabela leads_rd_pipedrive é escrita pelo n8n. A aba "Funil" do BO Checker lê estas
+-- colunas (via caminho journey: src/lib/journey.ts + cópia inline em api/index.ts) e mostra
+-- o Perfil A/B/C/D por lead. O n8n deve puxar a nota do RD e fazer upsert nestas colunas,
+-- casando por lead_email. São QUATRO colunas — o código faz select explícito das 4, então
+-- todas precisam existir (senão o PostgREST devolve 400). Rode uma vez no SQL Editor:
+--
+--   ALTER TABLE public.leads_rd_pipedrive
+--     ADD COLUMN IF NOT EXISTS rd_lead_score        NUMERIC,       -- nota (escala do RD, 0–10)
+--     ADD COLUMN IF NOT EXISTS rd_lead_score_grade  TEXT,          -- perfil A/B/C/D (opcional)
+--     ADD COLUMN IF NOT EXISTS rd_scored_at         TIMESTAMPTZ,   -- quando a nota foi calculada
+--     ADD COLUMN IF NOT EXISTS rd_score_detail      JSONB;         -- composição { o_que_busca, frequencia, voce_e }
+--
+-- rd_score_detail (JSONB) alimenta o "detalhamento" no expandir do lead. Formato esperado:
+--   { "o_que_busca": { "termo": "...", "nota": 9 }, "frequencia": {...}, "voce_e": {...} }
