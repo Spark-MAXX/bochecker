@@ -7,3 +7,9 @@ coverage/
 .env*
 *.env
 !.env.example
+
+# Obsidian — versiona as configs do vault, ignora os arquivos voláteis
+docs/.obsidian/workspace.json
+docs/.obsidian/workspace-mobile.json
+docs/.obsidian/cache
+docs/.obsidian/graph-*.json

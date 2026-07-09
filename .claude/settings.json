@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/PC Caio/OneDrive/Documentos/SparkMaxx/**)",
+      "mcp__claude_ai_n8n__search_workflows",
+      "mcp__claude_ai_Supabase__list_tables"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\PC Caio\\OneDrive\\Documentos\\SparkMaxx"
+    ]
+  }
+}
