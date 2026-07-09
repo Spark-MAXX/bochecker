@@ -41,18 +41,18 @@ export type Health = 'ok' | 'atencao' | 'erro';
 // Nota nativa do RD Station (lead scoring). Vem das colunas rd_lead_score* de leads_rd_pipedrive,
 // gravadas pelo n8n. Null quando a fonte não é RD ou o lead ainda não foi pontuado.
 export interface LeadScore {
-  value: number | null;   // pontos (escala do RD; confirmar via MCP no Step 0)
-  grade: string | null;   // perfil A/B/C/D, se existir no RD
+  value: number | null;   // nota de Perfil do RD (escala 0–10)
+  grade: string | null;   // banda A/B/C/D
   scored_at: string | null;
 }
 
-// Faixas de exibição da nota (ajustáveis quando a escala do RD for confirmada no Step 0).
-export const SCORE_BANDS = { quente: 70, morno: 40 } as const;
-export function scoreBand(value: number | null | undefined): 'quente' | 'morno' | 'frio' | null {
+// Banda de Perfil A/B/C/D a partir da nota 0–10 (matriz Spark: A ≥7,5 · B ≥5 · C ≥2,5 · D <2,5).
+export function gradeFromScore(value: number | null | undefined): 'A' | 'B' | 'C' | 'D' | null {
   if (value === null || value === undefined) return null;
-  if (value >= SCORE_BANDS.quente) return 'quente';
-  if (value >= SCORE_BANDS.morno) return 'morno';
-  return 'frio';
+  if (value >= 7.5) return 'A';
+  if (value >= 5.0) return 'B';
+  if (value >= 2.5) return 'C';
+  return 'D';
 }
 
 // S4 — status atual do deal no Pipedrive (deals_snapshot). Null até o sync do Pipedrive rodar.
@@ -115,7 +115,7 @@ const SELECT: Record<LeadSourceKey, string> = {
   framer:
     'id,criado_em,email,nome,telefone,empresa,cargo,produto,is_indicacao,utm_source,utm_medium,utm_campaign,page_url,origem_canal,conversion_identifier,o_que_busca,faz_influencia,tags',
   rd_pipedrive:
-    'id,criado_em,lead_nome,lead_email,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id,conversion_identifier,lp_origem,rd_lead_score,rd_lead_score_grade,rd_scored_at',
+    'id,criado_em,lead_nome,lead_email,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id,conversion_identifier,lp_origem,rd_lead_score,rd_lead_score_grade,rd_scored_at,rd_score_detail',
   webinar:
     'id,criado_em,email,nome,telefone,empresa,cargo,produto,is_indicacao,utm_source,utm_medium,utm_campaign,page_url,origem_canal,conversion_identifier',
 };
@@ -381,10 +381,9 @@ export async function fetchUnifiedLeads(
 
 export interface ScoringStats {
   total_rd: number;                         // leads RD na janela
-  scored: number;                           // leads RD com nota preenchida
-  media: number;                            // média das notas (arredondada)
-  por_faixa: { quente: number; morno: number; frio: number };
-  por_grade: Record<string, number>;        // contagem por grade (A/B/C/D), se houver
+  scored: number;                           // leads RD com nota de Perfil
+  media: number;                            // média das notas de Perfil (0–10, 1 casa)
+  por_grade: Record<string, number>;        // contagem por banda A/B/C/D
 }
 
 export interface FunnelStats {
@@ -395,22 +394,19 @@ export interface FunnelStats {
   duplicados: number;
 }
 
-// Agrega as notas nativas do RD sobre o conjunto de leads (usado em fetchUnifiedStats).
+// Agrega as notas de Perfil (RD) sobre o conjunto de leads (usado em fetchUnifiedStats).
 export function computeScoringStats(leads: UnifiedLead[]): ScoringStats {
   const rd = leads.filter((l) => l.source === 'rd_pipedrive');
   const scored = rd.filter((l) => l.score && l.score.value !== null && l.score.value !== undefined);
   const media = scored.length
-    ? Math.round(scored.reduce((s, l) => s + (l.score!.value || 0), 0) / scored.length)
+    ? Math.round((scored.reduce((s, l) => s + (l.score!.value || 0), 0) / scored.length) * 10) / 10
     : 0;
-  const por_faixa = { quente: 0, morno: 0, frio: 0 };
-  const por_grade: Record<string, number> = {};
+  const por_grade: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
   for (const l of scored) {
-    const band = scoreBand(l.score!.value);
-    if (band) por_faixa[band]++;
-    const g = l.score!.grade;
+    const g = l.score!.grade || gradeFromScore(l.score!.value);
     if (g) por_grade[g] = (por_grade[g] || 0) + 1;
   }
-  return { total_rd: rd.length, scored: scored.length, media, por_faixa, por_grade };
+  return { total_rd: rd.length, scored: scored.length, media, por_grade };
 }
 
 interface PeriodStats {

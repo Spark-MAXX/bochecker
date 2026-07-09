@@ -387,12 +387,12 @@ const U_STAGE_LABELS: Record<FunnelStage, string> = {
 interface PipeStatus { status: string | null; stage_id: number | null; valor: number | null; won_at: string | null; lost_at: string | null; lost_reason: string | null; atualizado_em: string | null; }
 type Health = 'ok' | 'atencao' | 'erro';
 interface LeadScore { value: number | null; grade: string | null; scored_at: string | null; }
-const U_SCORE_BANDS = { quente: 70, morno: 40 } as const;
-function uScoreBand(value: number | null | undefined): 'quente' | 'morno' | 'frio' | null {
+function uGradeFromScore(value: number | null | undefined): 'A' | 'B' | 'C' | 'D' | null {
   if (value === null || value === undefined) return null;
-  if (value >= U_SCORE_BANDS.quente) return 'quente';
-  if (value >= U_SCORE_BANDS.morno) return 'morno';
-  return 'frio';
+  if (value >= 7.5) return 'A';
+  if (value >= 5.0) return 'B';
+  if (value >= 2.5) return 'C';
+  return 'D';
 }
 interface UnifiedLead {
   uid: string; source: LeadSourceKey; source_label: string; source_id: number | string;
@@ -413,7 +413,7 @@ const U_REQUIRED_CORE = ['nome', 'email', 'telefone'] as const;
 const uIsEmpty = (v: any) => v === undefined || v === null || v === '' || v === 'null' || (Array.isArray(v) && v.length === 0);
 const U_SELECT: Record<LeadSourceKey, string> = {
   framer: 'id,criado_em,email,nome,telefone,empresa,cargo,produto,is_indicacao,utm_source,utm_medium,utm_campaign,page_url,origem_canal,conversion_identifier,o_que_busca,faz_influencia,tags',
-  rd_pipedrive: 'id,criado_em,lead_nome,lead_email,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id,conversion_identifier,lp_origem,rd_lead_score,rd_lead_score_grade,rd_scored_at',
+  rd_pipedrive: 'id,criado_em,lead_nome,lead_email,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id,conversion_identifier,lp_origem,rd_lead_score,rd_lead_score_grade,rd_scored_at,rd_score_detail',
   webinar: 'id,criado_em,email,nome,telefone,empresa,cargo,produto,is_indicacao,utm_source,utm_medium,utm_campaign,page_url,origem_canal,conversion_identifier',
 };
 const U_TABLE: Record<LeadSourceKey, string> = { framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
@@ -568,13 +568,10 @@ async function fetchUnifiedStats(db: SupabaseClient): Promise<any> {
   const isDeal = (s: FunnelStage) => s === 'deal_criado' || s === 'deal_ganho' || s === 'deal_perdido';
   const rdScored = rd.filter((l) => l.score && l.score.value !== null && l.score.value !== undefined);
   const scoreMedia = rdScored.length
-    ? Math.round(rdScored.reduce((s, l) => s + (l.score!.value || 0), 0) / rdScored.length) : 0;
-  const por_faixa = { quente: 0, morno: 0, frio: 0 };
-  const por_grade: Record<string, number> = {};
+    ? Math.round((rdScored.reduce((s, l) => s + (l.score!.value || 0), 0) / rdScored.length) * 10) / 10 : 0;
+  const por_grade: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
   for (const l of rdScored) {
-    const band = uScoreBand(l.score!.value);
-    if (band) por_faixa[band]++;
-    const g = l.score!.grade;
+    const g = l.score!.grade || uGradeFromScore(l.score!.value);
     if (g) por_grade[g] = (por_grade[g] || 0) + 1;
   }
   return {
@@ -588,7 +585,7 @@ async function fetchUnifiedStats(db: SupabaseClient): Promise<any> {
       ganho: rd.filter((l) => l.stage === 'deal_ganho').length,
       perdido: rd.filter((l) => l.stage === 'deal_perdido').length,
     },
-    scoring: { total_rd: rd.length, scored: rdScored.length, media: scoreMedia, por_faixa, por_grade },
+    scoring: { total_rd: rd.length, scored: rdScored.length, media: scoreMedia, por_grade },
     duplicados: leads.filter((l) => l.is_duplicate).length,
   };
 }

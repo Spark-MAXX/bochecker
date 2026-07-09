@@ -3,22 +3,27 @@ import { motion, AnimatePresence } from 'motion/react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
-  Gauge, Flame, TrendingUp, Search, ChevronDown, ChevronRight,
-  Mail, Building2, RefreshCcw, Filter, Info, Award,
+  Gauge, Search, ChevronDown, ChevronRight,
+  Mail, Building2, RefreshCcw, Filter, Info, Award, TrendingUp,
 } from 'lucide-react';
 import type { UnifiedLead, FunnelStats } from '../lib/schemas';
-import { scoreBand, SCORE_BANDS } from '../lib/schemas';
+import { GRADE_COLORS, gradeFromScore } from '../lib/schemas';
 
-// Cores por faixa de nota (quente = alto engajamento).
-const BAND_META: Record<'quente' | 'morno' | 'frio', { label: string; color: string }> = {
-  quente: { label: 'Quente', color: '#10b981' },
-  morno:  { label: 'Morno',  color: '#f59e0b' },
-  frio:   { label: 'Frio',   color: '#64748b' },
+// Bandas de Perfil A/B/C/D (matriz Spark). Faixa da nota 0–10.
+const GRADE_META: Record<'A' | 'B' | 'C' | 'D', { label: string; faixa: string }> = {
+  A: { label: 'Ótimo perfil', faixa: '7,5–10' },
+  B: { label: 'Bom perfil',   faixa: '5,0–7,4' },
+  C: { label: 'Perfil médio', faixa: '2,5–4,9' },
+  D: { label: 'Perfil baixo', faixa: '0–2,4' },
 };
+const GRADES = ['A', 'B', 'C', 'D'] as const;
 
-function bandColor(value: number | null | undefined): string {
-  const b = scoreBand(value);
-  return b ? BAND_META[b].color : '#64748b';
+function gradeOf(l: UnifiedLead): 'A' | 'B' | 'C' | 'D' | null {
+  const g = l.score?.grade as ('A' | 'B' | 'C' | 'D' | undefined);
+  return g || gradeFromScore(l.score?.value ?? null);
+}
+function gradeColor(g: string | null): string {
+  return (g && GRADE_COLORS[g]) || '#64748b';
 }
 
 interface LeadScoringProps {
@@ -47,8 +52,7 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
       const qs = new URLSearchParams();
       qs.append('source', 'rd_pipedrive');
       if (debouncedSearch) qs.append('search', debouncedSearch);
-      qs.append('limit', '200');
-
+      qs.append('limit', '500');
       const [leadsRes, statsRes] = await Promise.all([
         fetch(`/api/leads/unified?${qs.toString()}`),
         fetch('/api/leads/unified-stats'),
@@ -65,11 +69,11 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
 
   // Ordena por nota desc (sem nota vai pro fim); opcionalmente só os pontuados.
   const visibleLeads = useMemo(() => {
-    const withScore = (l: UnifiedLead) => l.score?.value ?? null;
+    const val = (l: UnifiedLead) => l.score?.value ?? null;
     let arr = leads.slice();
-    if (scoredOnly) arr = arr.filter((l) => withScore(l) !== null);
+    if (scoredOnly) arr = arr.filter((l) => val(l) !== null);
     return arr.sort((a, b) => {
-      const av = withScore(a), bv = withScore(b);
+      const av = val(a), bv = val(b);
       if (av === null && bv === null) return 0;
       if (av === null) return 1;
       if (bv === null) return -1;
@@ -90,7 +94,7 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
           <h3 className="text-sm font-semibold tracking-wide uppercase flex items-center gap-2"
             style={{ color: 'var(--text-2)' }}>
             <Gauge className="h-4 w-4" />
-            Lead Scoring · RD Station
+            Lead Scoring · Perfil RD
           </h3>
         </div>
 
@@ -113,7 +117,7 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
               borderColor: scoredOnly ? 'rgba(16,185,129,0.4)' : 'var(--border)',
               color: scoredOnly ? '#10b981' : 'var(--text-3)',
             }}>
-            {scoredOnly ? 'Só pontuados' : 'Todos'}
+            {scoredOnly ? 'Só com Perfil' : 'Todos'}
           </button>
 
           <button onClick={() => setShowHelp((v) => !v)}
@@ -140,26 +144,24 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
             className="border-b overflow-hidden" style={{ borderColor: 'var(--border-light)' }}>
             <div className="px-4 py-3 text-[11px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
               <p className="mb-2">
-                A <strong>nota é calculada no RD Station</strong> (motor nativo de Lead Scoring) a partir do
-                perfil e do engajamento de cada contato. O fluxo do <strong>n8n</strong> puxa essa nota do RD
-                e grava no Supabase (<code>leads_rd_pipedrive</code>); este painel apenas <strong>lê</strong> — a
-                pontuação nunca é recalculada aqui.
+                O <strong>Perfil</strong> é o Lead Scoring demográfico do RD Station. A nota (0–10) vem de
+                <strong> Σ nota×peso</strong> de 3 propriedades — <em>O que busca</em> (0,9), <em>Frequência de
+                campanha</em> (0,4) e <em>Você é</em> (0,1), pesos normalizados — e classifica o lead em A/B/C/D:
               </p>
-              <div className="flex flex-wrap gap-4">
-                {(['quente', 'morno', 'frio'] as const).map((b) => (
-                  <div key={b} className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: BAND_META[b].color }} />
+              <div className="flex flex-wrap gap-4 mb-2">
+                {GRADES.map((g) => (
+                  <div key={g} className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center justify-center rounded font-bold font-mono text-[10px]"
+                      style={{ width: 18, height: 18, backgroundColor: `${GRADE_COLORS[g]}1f`, color: GRADE_COLORS[g], border: `1px solid ${GRADE_COLORS[g]}66` }}>{g}</span>
                     <span className="font-mono text-[10px]" style={{ color: 'var(--text-3)' }}>
-                      {BAND_META[b].label}
-                      {b === 'quente' && ` (≥ ${SCORE_BANDS.quente})`}
-                      {b === 'morno' && ` (${SCORE_BANDS.morno}–${SCORE_BANDS.quente - 1})`}
-                      {b === 'frio' && ` (< ${SCORE_BANDS.morno})`}
+                      {GRADE_META[g].label} ({GRADE_META[g].faixa})
                     </span>
                   </div>
                 ))}
               </div>
-              <p className="mt-2 text-[10px]" style={{ color: 'var(--text-4)' }}>
-                Faixas ajustáveis conforme a escala real do RD (confirmada na integração).
+              <p className="text-[10px]" style={{ color: 'var(--text-4)' }}>
+                Nota calculada a partir dos campos do contato no RD (via n8n → Supabase). Leads sem as respostas
+                de "O que busca" e "Frequência" ficam <strong>sem perfil</strong>.
               </p>
             </div>
           </motion.div>
@@ -168,31 +170,14 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
 
       {/* Stats row */}
       {scoring && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-          <StatCell label="Nota média" value={scoring.media} icon={<TrendingUp className="h-3 w-3" />}
-            color="#06b6d4" sub={`${scoring.scored} de ${scoring.total_rd} pontuados`} />
-          <StatCell label="Quentes" value={scoring.por_faixa.quente} icon={<Flame className="h-3 w-3" />}
-            color={BAND_META.quente.color} sub={`≥ ${SCORE_BANDS.quente} pts`} />
-          <StatCell label="Mornos" value={scoring.por_faixa.morno} icon={<Gauge className="h-3 w-3" />}
-            color={BAND_META.morno.color} sub={`${SCORE_BANDS.morno}–${SCORE_BANDS.quente - 1} pts`} />
-          <StatCell label="Frios" value={scoring.por_faixa.frio} icon={<Gauge className="h-3 w-3" />}
-            color={BAND_META.frio.color} sub={`< ${SCORE_BANDS.morno} pts`} />
-        </div>
-      )}
-
-      {/* Distribuição por grade (se o RD expõe perfil A/B/C/D) */}
-      {scoring && Object.keys(scoring.por_grade).length > 0 && (
-        <div className="px-4 py-2 border-b flex items-center gap-3 flex-wrap"
-          style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-light)' }}>
-          <span className="text-[9px] font-mono uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-4)' }}>
-            <Award className="h-3 w-3" /> Perfil:
-          </span>
-          {Object.entries(scoring.por_grade).sort((a, b) => a[0].localeCompare(b[0])).map(([g, n]) => (
-            <div key={g} className="flex items-center gap-1.5">
-              <span className="text-[10px] font-mono" style={{ color: 'var(--text-3)' }}>
-                {g} <span className="font-bold" style={{ color: 'var(--text-1)' }}>{n}</span>
-              </span>
-            </div>
+        <div className="grid grid-cols-3 md:grid-cols-5 gap-px" style={{ backgroundColor: 'var(--border)' }}>
+          <StatCell label="Nota média" value={scoring.media.toFixed(1)} icon={<TrendingUp className="h-3 w-3" />}
+            color="#06b6d4" sub={`${scoring.scored} de ${scoring.total_rd} c/ perfil`} />
+          {GRADES.map((g) => (
+            <React.Fragment key={g}>
+              <StatCell label={`Banda ${g}`} value={scoring.por_grade?.[g] ?? 0}
+                icon={<Award className="h-3 w-3" />} color={GRADE_COLORS[g]} sub={GRADE_META[g].faixa} />
+            </React.Fragment>
           ))}
         </div>
       )}
@@ -208,7 +193,7 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
           <div className="h-48 flex flex-col items-center justify-center gap-2" style={{ color: 'var(--text-4)' }}>
             <Filter className="h-6 w-6 opacity-40" />
             <span className="text-[11px] font-mono uppercase tracking-widest">
-              Nenhum lead RD com nota // aguardando sync do n8n
+              Nenhum lead RD com Perfil // aguardando sync do n8n
             </span>
           </div>
         ) : (
@@ -216,7 +201,7 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
             <thead className="border-b sticky top-0 z-10" style={{ backgroundColor: 'var(--bg-muted)', borderColor: 'var(--border)' }}>
               <tr className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
                 <th className="p-3 font-semibold w-4" />
-                <th className="p-3 font-semibold">Nota</th>
+                <th className="p-3 font-semibold">Perfil</th>
                 <th className="p-3 font-semibold">Lead</th>
                 <th className="p-3 font-semibold">Estágio</th>
                 <th className="p-3 font-semibold">Pontuado</th>
@@ -226,7 +211,8 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
               {visibleLeads.map((lead) => {
                 const isExpanded = expanded === lead.uid;
                 const value = lead.score?.value ?? null;
-                const color = bandColor(value);
+                const g = gradeOf(lead);
+                const color = gradeColor(g);
 
                 return (
                   <React.Fragment key={lead.uid}>
@@ -239,7 +225,7 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
                           : <ChevronRight className="h-3.5 w-3.5" style={{ color: 'var(--text-4)' }} />}
                       </td>
                       <td className="p-3 whitespace-nowrap">
-                        <ScoreBadge value={value} grade={lead.score?.grade ?? null} />
+                        <ScoreBadge value={value} grade={g} />
                       </td>
                       <td className="p-3">
                         <div className="text-sm font-semibold" style={{ color: 'var(--text-1)' }}>
@@ -275,17 +261,7 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
                             <motion.div
                               initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
                               transition={{ duration: 0.15 }} className="space-y-3">
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
-                                <Field icon={<Gauge className="h-3 w-3" />} label="Nota (pts)" value={value !== null ? String(value) : null} />
-                                <Field icon={<Award className="h-3 w-3" />} label="Perfil" value={lead.score?.grade} />
-                                <Field icon={<Mail className="h-3 w-3" />} label="Email" value={lead.email} />
-                                <Field icon={<Building2 className="h-3 w-3" />} label="Empresa" value={lead.empresa} />
-                              </div>
-                              {value === null && (
-                                <div className="text-[10px] font-mono" style={{ color: 'var(--c-warning, #f59e0b)' }}>
-                                  Sem nota do RD ainda — o n8n grava <code>rd_lead_score</code> em leads_rd_pipedrive.
-                                </div>
-                              )}
+                              <ScoreDetail lead={lead} value={value} grade={g} />
                             </motion.div>
                           </td>
                         </tr>
@@ -304,28 +280,66 @@ export default function LeadScoring({ refreshKey = 0 }: LeadScoringProps) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function ScoreBadge({ value, grade }: { value: number | null; grade: string | null }) {
-  const color = bandColor(value);
+  const color = gradeColor(grade);
   if (value === null) {
-    return <span className="text-[10px] font-mono" style={{ color: 'var(--text-4)' }}>sem nota</span>;
+    return <span className="text-[10px] font-mono" style={{ color: 'var(--text-4)' }}>sem perfil</span>;
   }
   return (
     <div className="flex items-center gap-2">
       <span className="inline-flex items-center justify-center rounded-lg text-sm font-bold font-mono"
-        style={{ minWidth: 40, padding: '4px 8px', backgroundColor: `${color}1f`, color, border: `1px solid ${color}66` }}>
-        {value}
+        style={{ width: 30, height: 30, backgroundColor: `${color}1f`, color, border: `1px solid ${color}66` }}>
+        {grade || '—'}
       </span>
-      {grade && (
-        <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded"
-          style={{ backgroundColor: 'var(--bg-input)', color: 'var(--text-2)', border: '1px solid var(--border)' }}>
-          {grade}
-        </span>
+      <span className="text-[11px] font-mono font-semibold" style={{ color: 'var(--text-1)' }}>
+        {value.toFixed(1)}
+      </span>
+    </div>
+  );
+}
+
+function ScoreDetail({ lead, value, grade }: { lead: UnifiedLead; value: number | null; grade: string | null }) {
+  const det: any = (lead.score as any)?.detail || (lead.raw && (lead.raw as any).rd_score_detail) || null;
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
+        <Field icon={<Award className="h-3 w-3" />} label="Banda" value={grade} />
+        <Field icon={<Gauge className="h-3 w-3" />} label="Nota (0–10)" value={value !== null ? value.toFixed(1) : null} />
+        <Field icon={<Mail className="h-3 w-3" />} label="Email" value={lead.email} />
+        <Field icon={<Building2 className="h-3 w-3" />} label="Empresa" value={lead.empresa} />
+      </div>
+      {det && (det.o_que_busca || det.frequencia || det.voce_e) && (
+        <div>
+          <div className="text-[10px] font-mono uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-3)' }}>
+            Composição do Perfil (nota × peso)
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[10px] font-mono">
+            <PerfilTerm label="O que busca ×0,9" termo={det.o_que_busca?.termo} nota={det.o_que_busca?.nota} />
+            <PerfilTerm label="Frequência ×0,4" termo={det.frequencia?.termo} nota={det.frequencia?.nota} />
+            <PerfilTerm label="Você é ×0,1" termo={det.voce_e?.termo} nota={det.voce_e?.nota} />
+          </div>
+        </div>
+      )}
+      {value === null && (
+        <div className="text-[10px] font-mono" style={{ color: 'var(--c-warning, #f59e0b)' }}>
+          Sem Perfil — lead não respondeu "O que busca" / "Frequência" no RD.
+        </div>
       )}
     </div>
   );
 }
 
+function PerfilTerm({ label, termo, nota }: { label: string; termo?: string | null; nota?: number | null }) {
+  return (
+    <div className="p-2 rounded border" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+      <div className="uppercase tracking-wider mb-1" style={{ color: 'var(--text-4)' }}>{label}</div>
+      <div style={{ color: 'var(--text-1)' }}>{termo || '—'}</div>
+      <div className="mt-0.5" style={{ color: 'var(--text-3)' }}>nota: {nota ?? '—'}</div>
+    </div>
+  );
+}
+
 function StatCell({ label, value, icon, color, sub }: {
-  label: string; value: number; icon: React.ReactNode; color: string; sub?: string;
+  label: string; value: number | string; icon: React.ReactNode; color: string; sub?: string;
 }) {
   return (
     <div className="p-3" style={{ backgroundColor: 'var(--bg-card)' }}>

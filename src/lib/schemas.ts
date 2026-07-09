@@ -94,13 +94,15 @@ export interface LeadScore {
   scored_at: string | null;
 }
 
-// Faixas de exibição da nota (ajustáveis quando a escala do RD for confirmada).
-export const SCORE_BANDS = { quente: 70, morno: 40 } as const;
-export function scoreBand(value: number | null | undefined): 'quente' | 'morno' | 'frio' | null {
+// Classificação de Perfil do RD Station (matriz Spark): banda A/B/C/D a partir da nota 0–10.
+// A: 10–7,5 · B: 7,4–5,0 · C: 4,9–2,5 · D: 2,4–0.
+export const GRADE_COLORS: Record<string, string> = { A: '#10b981', B: '#84cc16', C: '#f59e0b', D: '#ef4444' };
+export function gradeFromScore(value: number | null | undefined): 'A' | 'B' | 'C' | 'D' | null {
   if (value === null || value === undefined) return null;
-  if (value >= SCORE_BANDS.quente) return 'quente';
-  if (value >= SCORE_BANDS.morno) return 'morno';
-  return 'frio';
+  if (value >= 7.5) return 'A';
+  if (value >= 5.0) return 'B';
+  if (value >= 2.5) return 'C';
+  return 'D';
 }
 
 // S4 — status atual do deal no Pipedrive (vem de deals_snapshot; null até o sync do Pipedrive rodar)
@@ -164,9 +166,8 @@ interface PeriodStats {
 export interface ScoringStats {
   total_rd: number;
   scored: number;
-  media: number;
-  por_faixa: { quente: number; morno: number; frio: number };
-  por_grade: Record<string, number>;
+  media: number;                     // média das notas de Perfil (0–10)
+  por_grade: Record<string, number>; // { A, B, C, D }
 }
 
 export interface FunnelStats {
