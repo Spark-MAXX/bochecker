@@ -86,6 +86,23 @@ export type FunnelStage =
   | 'deal_ganho' | 'deal_perdido';
 export type Health = 'ok' | 'atencao' | 'erro';
 
+// Nota nativa do RD Station (lead scoring). Vem de leads_rd_pipedrive (colunas rd_lead_score*),
+// gravadas pelo n8n. Null quando a fonte não é RD ou o lead ainda não foi pontuado.
+export interface LeadScore {
+  value: number | null;   // pontos (escala do RD)
+  grade: string | null;   // perfil A/B/C/D, se existir
+  scored_at: string | null;
+}
+
+// Faixas de exibição da nota (ajustáveis quando a escala do RD for confirmada).
+export const SCORE_BANDS = { quente: 70, morno: 40 } as const;
+export function scoreBand(value: number | null | undefined): 'quente' | 'morno' | 'frio' | null {
+  if (value === null || value === undefined) return null;
+  if (value >= SCORE_BANDS.quente) return 'quente';
+  if (value >= SCORE_BANDS.morno) return 'morno';
+  return 'frio';
+}
+
 // S4 — status atual do deal no Pipedrive (vem de deals_snapshot; null até o sync do Pipedrive rodar)
 export interface PipeStatus {
   status: 'open' | 'won' | 'lost' | string | null;
@@ -128,6 +145,7 @@ export interface UnifiedLead {
   } | null;
   pipedrive: { person_id: number | null; deal_id: number | null } | null;
   pipe: PipeStatus | null;
+  score: LeadScore | null;
   is_duplicate: boolean;
   dup_count?: number;
   also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[];
@@ -143,10 +161,19 @@ interface PeriodStats {
   taxa_completos: number;
 }
 
+export interface ScoringStats {
+  total_rd: number;
+  scored: number;
+  media: number;
+  por_faixa: { quente: number; morno: number; frio: number };
+  por_grade: Record<string, number>;
+}
+
 export interface FunnelStats {
   periodos: Record<'h24' | 'hoje' | 'd7', PeriodStats>;
   por_origem: { source: LeadSourceKey; source_label: string; total: number; completos: number; problema: number }[];
   funil_rd: { capturado: number; processado: number; deal: number; nao_processado: number; ganho: number; perdido: number };
+  scoring: ScoringStats;
   duplicados: number;
 }
 

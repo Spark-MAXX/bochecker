@@ -123,3 +123,17 @@ END $$;
 
 -- NOTA: as escritas (insert/update) são feitas pela API com a SUPABASE_SERVICE_ROLE_KEY,
 -- que ignora RLS. As policies acima liberam apenas LEITURA pública (dashboard via anon key).
+
+-- ── Lead Scoring (nota nativa do RD Station) ─────────────────────────────────
+-- A tabela leads_rd_pipedrive é escrita pelo n8n e NÃO faz parte desta migration.
+-- O painel "Lead Scoring" do BO Checker lê estas colunas (via camada unificada de leads).
+-- O n8n deve puxar a nota do RD Station e fazer upsert nestas colunas, casando por
+-- lead_email / conversion_identifier. Rode este ALTER uma vez no SQL Editor:
+--
+--   ALTER TABLE public.leads_rd_pipedrive
+--     ADD COLUMN IF NOT EXISTS rd_lead_score        INTEGER,      -- pontos (escala do RD)
+--     ADD COLUMN IF NOT EXISTS rd_lead_score_grade  TEXT,         -- perfil A/B/C/D (se houver)
+--     ADD COLUMN IF NOT EXISTS rd_scored_at         TIMESTAMPTZ;  -- quando a nota foi calculada
+--
+-- Nomes/escala confirmados via inspeção da API do RD (contact fields). Ajuste os nomes
+-- acima e o SELECT em src/lib/leads-unified.ts + api/index.ts se o RD usar outra convenção.

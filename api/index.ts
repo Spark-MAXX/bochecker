@@ -386,6 +386,14 @@ const U_STAGE_LABELS: Record<FunnelStage, string> = {
 };
 interface PipeStatus { status: string | null; stage_id: number | null; valor: number | null; won_at: string | null; lost_at: string | null; lost_reason: string | null; atualizado_em: string | null; }
 type Health = 'ok' | 'atencao' | 'erro';
+interface LeadScore { value: number | null; grade: string | null; scored_at: string | null; }
+const U_SCORE_BANDS = { quente: 70, morno: 40 } as const;
+function uScoreBand(value: number | null | undefined): 'quente' | 'morno' | 'frio' | null {
+  if (value === null || value === undefined) return null;
+  if (value >= U_SCORE_BANDS.quente) return 'quente';
+  if (value >= U_SCORE_BANDS.morno) return 'morno';
+  return 'frio';
+}
 interface UnifiedLead {
   uid: string; source: LeadSourceKey; source_label: string; source_id: number | string;
   nome: string | null; email: string | null; telefone: string | null; empresa: string | null; produto: string | null;
@@ -394,6 +402,7 @@ interface UnifiedLead {
   routing: { rota_definida: string | null; rota_encontrada: boolean | null; destino_pipeline: string | null; destino_stage: string | null; destino_owner: string | null; processado: boolean | null; motivo_rota: string | null } | null;
   pipedrive: { person_id: number | null; deal_id: number | null } | null;
   pipe: PipeStatus | null;
+  score: LeadScore | null;
   is_duplicate: boolean; dup_count?: number; also_in: { source: LeadSourceKey; stage: FunnelStage; deal_id: number | null }[]; raw: Record<string, any>;
 }
 interface UnifiedFilters {
@@ -404,7 +413,7 @@ const U_REQUIRED_CORE = ['nome', 'email', 'telefone'] as const;
 const uIsEmpty = (v: any) => v === undefined || v === null || v === '' || v === 'null' || (Array.isArray(v) && v.length === 0);
 const U_SELECT: Record<LeadSourceKey, string> = {
   framer: 'id,criado_em,email,nome,telefone,empresa,cargo,produto,is_indicacao,utm_source,utm_medium,utm_campaign,page_url,origem_canal,conversion_identifier,o_que_busca,faz_influencia,tags',
-  rd_pipedrive: 'id,criado_em,lead_nome,lead_email,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id,conversion_identifier,lp_origem',
+  rd_pipedrive: 'id,criado_em,lead_nome,lead_email,lead_telefone,lead_empresa,produto_interesse,is_indicacao,utm_source,utm_medium,utm_campaign,rota_definida,rota_encontrada,motivo_rota,destino_pipeline_nome,destino_stage_nome,destino_owner_nome,processado,pipedrive_person_id,pipedrive_deal_id,conversion_identifier,lp_origem,rd_lead_score,rd_lead_score_grade,rd_scored_at',
   webinar: 'id,criado_em,email,nome,telefone,empresa,cargo,produto,is_indicacao,utm_source,utm_medium,utm_campaign,page_url,origem_canal,conversion_identifier',
 };
 const U_TABLE: Record<LeadSourceKey, string> = { framer: 'leads_framer', rd_pipedrive: 'leads_rd_pipedrive', webinar: 'leads_webinar' };
@@ -467,12 +476,15 @@ function uNormalize(source: LeadSourceKey, row: any): UnifiedLead {
     pipedrive = { person_id: row.pipedrive_person_id ?? null, deal_id: row.pipedrive_deal_id ?? null };
   }
   const { stage, health } = uClassify(source, status, routing, pipedrive, null);
+  const score: LeadScore | null = source === 'rd_pipedrive'
+    ? { value: row.rd_lead_score ?? null, grade: row.rd_lead_score_grade ?? null, scored_at: row.rd_scored_at ?? null }
+    : null;
   return {
     uid: `${source}:${row.id}`, source, source_label: U_SOURCE_LABELS[source], source_id: row.id, ...common,
     created_at: row.criado_em, is_indicacao: !!row.is_indicacao,
     utm_source: row.utm_source ?? null, utm_medium: row.utm_medium ?? null, utm_campaign: row.utm_campaign ?? null,
     status, missing, stage, stage_label: U_STAGE_LABELS[stage], health, routing, pipedrive,
-    pipe: null, is_duplicate: false, also_in: [], raw: row,
+    pipe: null, score, is_duplicate: false, also_in: [], raw: row,
   };
 }
 
@@ -554,6 +566,17 @@ async function fetchUnifiedStats(db: SupabaseClient): Promise<any> {
   });
   const rd = leads.filter((l) => l.source === 'rd_pipedrive');
   const isDeal = (s: FunnelStage) => s === 'deal_criado' || s === 'deal_ganho' || s === 'deal_perdido';
+  const rdScored = rd.filter((l) => l.score && l.score.value !== null && l.score.value !== undefined);
+  const scoreMedia = rdScored.length
+    ? Math.round(rdScored.reduce((s, l) => s + (l.score!.value || 0), 0) / rdScored.length) : 0;
+  const por_faixa = { quente: 0, morno: 0, frio: 0 };
+  const por_grade: Record<string, number> = {};
+  for (const l of rdScored) {
+    const band = uScoreBand(l.score!.value);
+    if (band) por_faixa[band]++;
+    const g = l.score!.grade;
+    if (g) por_grade[g] = (por_grade[g] || 0) + 1;
+  }
   return {
     periodos: { h24: mk((l) => ts(l) >= t24), hoje: mk((l) => ts(l) >= tToday), d7: mk((l) => ts(l) >= t7) },
     por_origem,
@@ -565,6 +588,7 @@ async function fetchUnifiedStats(db: SupabaseClient): Promise<any> {
       ganho: rd.filter((l) => l.stage === 'deal_ganho').length,
       perdido: rd.filter((l) => l.stage === 'deal_perdido').length,
     },
+    scoring: { total_rd: rd.length, scored: rdScored.length, media: scoreMedia, por_faixa, por_grade },
     duplicados: leads.filter((l) => l.is_duplicate).length,
   };
 }

@@ -7,12 +7,14 @@ import Filters from './components/Filters';
 import WorkflowsPanel from './components/WorkflowsPanel';
 import JourneyMonitor from './components/JourneyMonitor';
 import LeadsMonitor from './components/LeadsMonitor';
+import LeadScoring from './components/LeadScoring';
 import { type Alert, type LeadsStats } from './lib/schemas';
 
 const PAGE_META: Record<Page, { title: string; subtitle: string }> = {
   overview:  { title: 'Visão geral',     subtitle: 'KPIs do pipeline em tempo real' },
   funil:     { title: 'Funil de leads',  subtitle: 'Framer / Webinar → RD → Pipedrive' },
   leads:     { title: 'Leads',           subtitle: 'Completos e incompletos do validador' },
+  scoring:   { title: 'Lead Scoring',    subtitle: 'Nota nativa do RD Station por lead' },
   execucoes: { title: 'Execuções n8n',   subtitle: 'Saúde e histórico dos workflows' },
   alertas:   { title: 'Alertas',         subtitle: 'Leads incompletos e erros técnicos' },
 };
@@ -136,6 +138,8 @@ export default function App() {
           {page === 'funil' && <JourneyMonitor refreshKey={refreshKey} />}
 
           {page === 'leads' && <LeadsMonitor refreshKey={refreshKey} />}
+
+          {page === 'scoring' && <LeadScoring refreshKey={refreshKey} />}
 
           {page === 'execucoes' && (
             <WorkflowsPanel

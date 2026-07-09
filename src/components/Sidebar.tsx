@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type Page = 'overview' | 'funil' | 'leads' | 'execucoes' | 'alertas';
+export type Page = 'overview' | 'funil' | 'leads' | 'scoring' | 'execucoes' | 'alertas';
 
 interface NavItem { key: Page; num: string; label: string; sub: string; }
 
@@ -8,8 +8,9 @@ const NAV: NavItem[] = [
   { key: 'overview',  num: 'i',   label: 'Visão geral',   sub: 'KPIs do pipeline' },
   { key: 'funil',     num: 'ii',  label: 'Funil',         sub: 'Framer → RD → Pipe' },
   { key: 'leads',     num: 'iii', label: 'Leads',         sub: 'Validador de campos' },
-  { key: 'execucoes', num: 'iv',  label: 'Execuções n8n', sub: 'Saúde dos workflows' },
-  { key: 'alertas',   num: 'v',   label: 'Alertas',       sub: 'Incompletos & erros' },
+  { key: 'scoring',   num: 'iv',  label: 'Lead Scoring',  sub: 'Nota RD por lead' },
+  { key: 'execucoes', num: 'v',   label: 'Execuções n8n', sub: 'Saúde dos workflows' },
+  { key: 'alertas',   num: 'vi',  label: 'Alertas',       sub: 'Incompletos & erros' },
 ];
 
 interface SidebarProps {
