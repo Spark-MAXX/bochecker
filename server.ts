@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -155,6 +156,18 @@ async function startServer() {
 
   app.use(cors());
   app.use(express.json());
+
+  // Rate limiting — protege todas as rotas (inclui webhooks e o static
+  // catch-all) contra abuso/DoS (js/missing-rate-limiting). 300 req/min por IP
+  // é folgado pro uso legítimo (n8n + dashboard interno).
+  app.use(
+    rateLimit({
+      windowMs: 60_000,
+      max: 300,
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
+  );
 
   const webhookAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const secret = req.headers['x-webhook-secret'];
